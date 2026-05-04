@@ -25,8 +25,8 @@ const UrduFontStyles = () => (
 
 // --- REDIS INITIALIZATION ---
 const redis = new Redis({ 
-  url: "https://exact-llama-77145.upstash.io", 
-  token: "gQAAAAAAAS1ZAAIgcDIxZjI3MTkxYzY3ODM0NTFjODJlOGEyYzJiMDJjOTk5Mw", 
+  url: import.meta.env.VITE_UPSTASH_REDIS_REST_URL, 
+  token: import.meta.env.VITE_UPSTASH_REDIS_REST_TOKEN, 
 }); 
 
 const appId = 'madina-quiz-v1';
