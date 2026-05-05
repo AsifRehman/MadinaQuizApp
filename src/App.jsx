@@ -49,8 +49,10 @@ export default function App() {
   const [allStudentsData, setAllStudentsData] = useState({});
   const [viewingDetails, setViewingDetails] = useState(null); // { studentName, lectureNum, data }
   const [isManagingUsers, setIsManagingUsers] = useState(false);
+  const [instructorView, setInstructorView] = useState('students'); // 'students', 'users', 'logs'
   const [newUser, setNewUser] = useState({ username: '', password: '' });
   const [users, setUsers] = useState({});
+  const [loginLogs, setLoginLogs] = useState([]);
 
   const initializeUsers = async () => {
     try {
@@ -107,13 +109,31 @@ export default function App() {
     } catch (err) { console.error("Redis fetch users error:", err); }
   };
 
+  const fetchLoginLogs = async () => {
+    try {
+      const logs = await redis.lrange('quiz:login_logs', 0, 99); // Get last 100 logs
+      const parsedLogs = logs.map(log => {
+        try {
+          return JSON.parse(log);
+        } catch {
+          return log;
+        }
+      });
+      setLoginLogs(parsedLogs);
+    } catch (err) { console.error("Redis fetch logs error:", err); }
+  };
+
   useEffect(() => {
     if (!isLoggedIn) return;
     
     if (studentName.toLowerCase() === 'instructor') {
       fetchAllStudentsData();
       fetchUsers();
-      const interval = setInterval(fetchAllStudentsData, 10000); // Poll every 10s
+      fetchLoginLogs();
+      const interval = setInterval(() => {
+        fetchAllStudentsData();
+        fetchLoginLogs();
+      }, 10000); // Poll every 10s
       return () => clearInterval(interval);
     } else {
       fetchStudentData(studentName);
@@ -127,10 +147,31 @@ export default function App() {
     setIsLoggingIn(true);
     
     try {
-      const storedPassword = await redis.hget('quiz:users', studentName);
+      // Normalize username to lowercase for case-insensitive matching
+      const normalizedUsername = studentName.toLowerCase();
+      const storedPassword = await redis.hget('quiz:users', normalizedUsername);
+      
       if (storedPassword === password) {
+        // Save login log
+        const logEntry = {
+          username: normalizedUsername,
+          timestamp: new Date().toISOString(),
+          success: true
+        };
+        await redis.lpush('quiz:login_logs', JSON.stringify(logEntry));
+        
+        // Use normalized username for the session
+        setStudentName(normalizedUsername);
         setIsLoggedIn(true);
       } else {
+        // Log failed attempt
+        const logEntry = {
+          username: normalizedUsername,
+          timestamp: new Date().toISOString(),
+          success: false
+        };
+        await redis.lpush('quiz:login_logs', JSON.stringify(logEntry));
+        
         setLoginError('Invalid username or password');
       }
     } catch (err) {
@@ -145,7 +186,9 @@ export default function App() {
     e.preventDefault();
     if (!newUser.username || !newUser.password) return;
     try {
-      await redis.hset('quiz:users', { [newUser.username]: newUser.password });
+      // Normalize username to lowercase
+      const normalizedUsername = newUser.username.toLowerCase();
+      await redis.hset('quiz:users', { [normalizedUsername]: newUser.password });
       setNewUser({ username: '', password: '' });
       fetchUsers();
     } catch (err) { console.error("Add user error:", err); }
@@ -155,7 +198,9 @@ export default function App() {
     if (username === 'instructor') return;
     if (!confirm(`Are you sure you want to delete user: ${username}?`)) return;
     try {
-      await redis.hdel('quiz:users', username);
+      // Normalize username to lowercase
+      const normalizedUsername = username.toLowerCase();
+      await redis.hdel('quiz:users', normalizedUsername);
       fetchUsers();
     } catch (err) { console.error("Delete user error:", err); }
   };
@@ -264,20 +309,34 @@ export default function App() {
           <div className="w-8 h-8 bg-emerald-500 rounded-lg flex items-center justify-center text-white"><Users size={18} /></div>
           <span className="text-white font-bold tracking-tight text-lg">Instructor Portal</span>
         </div>
-        <div className="flex items-center gap-4">
+        <div className="flex items-center gap-2">
           <button 
-            onClick={() => setIsManagingUsers(!isManagingUsers)} 
-            className={`flex items-center gap-2 px-4 py-2 rounded-lg font-bold transition-all ${isManagingUsers ? 'bg-emerald-600 text-white' : 'bg-slate-800 text-slate-300 hover:bg-slate-700'}`}
+            onClick={() => setInstructorView('students')} 
+            className={`flex items-center gap-2 px-4 py-2 rounded-lg font-bold transition-all ${instructorView === 'students' ? 'bg-emerald-600 text-white' : 'bg-slate-800 text-slate-300 hover:bg-slate-700'}`}
+          >
+            <Users size={18} />
+            <span>Students</span>
+          </button>
+          <button 
+            onClick={() => setInstructorView('users')} 
+            className={`flex items-center gap-2 px-4 py-2 rounded-lg font-bold transition-all ${instructorView === 'users' ? 'bg-emerald-600 text-white' : 'bg-slate-800 text-slate-300 hover:bg-slate-700'}`}
           >
             <Users size={18} />
             <span>Manage Users</span>
+          </button>
+          <button 
+            onClick={() => setInstructorView('logs')} 
+            className={`flex items-center gap-2 px-4 py-2 rounded-lg font-bold transition-all ${instructorView === 'logs' ? 'bg-emerald-600 text-white' : 'bg-slate-800 text-slate-300 hover:bg-slate-700'}`}
+          >
+            <ClipboardList size={18} />
+            <span>Login Logs</span>
           </button>
           <button onClick={handleLogout} className="text-slate-400 hover:text-red-400 transition-colors"><LogOut size={24} /></button>
         </div>
       </header>
       
       <main className="max-w-6xl mx-auto p-4 md:p-6">
-        {isManagingUsers ? (
+        {instructorView === 'users' ? (
           <div className="grid gap-6">
             <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
               <h3 className="text-xl font-bold mb-4 flex items-center gap-2 text-slate-800">
@@ -326,6 +385,44 @@ export default function App() {
                   </div>
                 ))}
               </div>
+            </div>
+          </div>
+        ) : instructorView === 'logs' ? (
+          <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+            <div className="px-6 py-4 bg-slate-50 border-b">
+              <h3 className="font-bold text-slate-700 flex items-center gap-2">
+                <ClipboardList size={20} /> Login Activity Log
+              </h3>
+            </div>
+            <div className="overflow-x-auto">
+              {loginLogs.length === 0 ? (
+                <div className="px-6 py-8 text-center text-slate-400">No login logs yet</div>
+              ) : (
+                <table className="w-full">
+                  <thead className="border-b bg-slate-50">
+                    <tr>
+                      <th className="px-6 py-3 text-left text-sm font-bold text-slate-600">Username</th>
+                      <th className="px-6 py-3 text-left text-sm font-bold text-slate-600">Timestamp</th>
+                      <th className="px-6 py-3 text-left text-sm font-bold text-slate-600">Status</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y">
+                    {loginLogs.map((log, idx) => (
+                      <tr key={idx} className="hover:bg-slate-50 transition-colors">
+                        <td className="px-6 py-3 font-medium text-slate-700">{log.username}</td>
+                        <td className="px-6 py-3 text-sm text-slate-500">
+                          {new Date(log.timestamp).toLocaleString()}
+                        </td>
+                        <td className="px-6 py-3">
+                          <span className={`px-3 py-1 rounded-full text-sm font-bold ${log.success ? 'bg-emerald-100 text-emerald-700' : 'bg-red-100 text-red-700'}`}>
+                            {log.success ? 'Success' : 'Failed'}
+                          </span>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
             </div>
           </div>
         ) : (
