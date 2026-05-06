@@ -54,15 +54,30 @@ export default function App() {
   const [users, setUsers] = useState({});
   const [loginLogs, setLoginLogs] = useState([]);
 
-  const initializeUsers = async () => {
-    try {
-      const existingUsers = await redis.hgetall('quiz:users');
-      if (!existingUsers || !existingUsers.instructor) {
-        await redis.hset('quiz:users', { 'instructor': 'ins321' });
+  const formatRelativeTime = (isoString) => {
+    if (!isoString) return '';
+    const date = new Date(isoString);
+    if (Number.isNaN(date.getTime())) return new Date(isoString).toLocaleString();
+
+    const diffMs = Date.now() - date.getTime();
+    const absMs = Math.abs(diffMs);
+    const units = [
+      { label: 'year', ms: 365 * 24 * 60 * 60 * 1000 },
+      { label: 'month', ms: 30 * 24 * 60 * 60 * 1000 },
+      { label: 'week', ms: 7 * 24 * 60 * 60 * 1000 },
+      { label: 'day', ms: 24 * 60 * 60 * 1000 },
+      { label: 'hour', ms: 60 * 60 * 1000 },
+      { label: 'minute', ms: 60 * 1000 },
+      { label: 'second', ms: 1000 },
+    ];
+
+    for (const { label, ms } of units) {
+      const value = Math.floor(absMs / ms);
+      if (value >= 1) {
+        return `${value} ${label}${value > 1 ? 's' : ''} ago`;
       }
-    } catch (err) {
-      console.error("Initialization error:", err);
     }
+    return 'just now';
   };
 
   const fetchQuestions = async () => {
@@ -79,7 +94,6 @@ export default function App() {
   };
 
   useEffect(() => {
-    initializeUsers();
     fetchQuestions();
   }, []);
 
@@ -92,14 +106,26 @@ export default function App() {
 
   const fetchAllStudentsData = async () => {
     try {
-      const students = await redis.smembers('quiz:students');
-      const allData = {};
-      for (const name of students) {
-        const data = await redis.hgetall(`quiz:results:${name}`);
-        allData[name] = data || {};
+      const students = await redis.smembers('quiz:students') || [];
+      const sortedStudents = [...students].sort((a, b) => a.localeCompare(b));
+
+      if (sortedStudents.length === 0) {
+        setAllStudentsData({});
+        return;
       }
+
+      const pipeline = redis.pipeline();
+      sortedStudents.forEach((name) => pipeline.hgetall(`quiz:results:${name}`));
+      const results = await pipeline.exec();
+
+      const allData = {};
+      sortedStudents.forEach((name, idx) => {
+        allData[name] = results[idx] || {};
+      });
       setAllStudentsData(allData);
-    } catch (err) { console.error("Redis fetch all error:", err); }
+    } catch (err) {
+      console.error("Redis fetch all error:", err);
+    }
   };
 
   const fetchUsers = async () => {
@@ -427,7 +453,10 @@ export default function App() {
           </div>
         ) : (
           <div className="grid gap-4">
-            {Object.keys(allStudentsData).filter(n => n.toLowerCase() !== 'instructor').map(name => (
+            {Object.keys(allStudentsData)
+              .filter(n => n.toLowerCase() !== 'instructor')
+              .sort((a, b) => a.localeCompare(b))
+              .map(name => (
               <div key={name} className="bg-white rounded-xl border border-slate-200 overflow-hidden shadow-sm hover:shadow-md transition-shadow">
                 <div className="bg-slate-50 px-5 py-3 font-bold text-lg border-b text-slate-700 flex justify-between items-center">
                   <span>{name}</span>
@@ -443,7 +472,10 @@ export default function App() {
                         className={`p-3 rounded-xl border text-center transition-all ${d ? 'bg-emerald-50 border-emerald-200 hover:scale-105 cursor-pointer' : 'bg-slate-50 border-slate-100 opacity-40 cursor-default'}`}
                       >
                         <div className="text-[9px] font-black uppercase text-slate-400 mb-0.5">Lec {num}</div>
-                        <div className="text-lg font-black text-slate-700">{d ? `${Math.round(d.lastScore)}%` : '--'}</div>
+                        <div>
+                  <div className="text-lg font-black text-slate-700">{d ? `${Math.round(d.lastScore)}%` : '--'}</div>
+                  {d?.completedAt && <div className="text-[11px] text-slate-500 mt-1">{formatRelativeTime(d.completedAt)}</div>}
+                </div>
                       </button>
                     );
                   })}
@@ -461,6 +493,7 @@ export default function App() {
               <div>
                 <h3 className="text-xl font-bold">{viewingDetails.studentName}</h3>
                 <p className="text-slate-500 font-medium">Lecture {viewingDetails.lectureNum} - {Math.round(viewingDetails.data.lastScore)}%</p>
+                {viewingDetails.data.completedAt && <p className="text-slate-400 text-sm">Completed {formatRelativeTime(viewingDetails.data.completedAt)}</p>}
               </div>
               <button onClick={() => setViewingDetails(null)} className="p-2 hover:bg-slate-200 rounded-full transition-colors"><XCircle size={32} className="text-slate-400" /></button>
             </header>
@@ -575,7 +608,10 @@ export default function App() {
             <button key={num} onClick={() => startQuiz(num)} className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm hover:shadow-md hover:border-emerald-300 text-left transition-all group">
               <div className="flex items-center gap-4">
                 <div className="w-12 h-12 rounded-xl flex items-center justify-center font-bold text-xl bg-emerald-50 text-emerald-600 group-hover:bg-emerald-600 group-hover:text-white transition-colors">{num}</div>
-                <div><h3 className="font-bold text-lg text-slate-700">Lecture {num}</h3></div>
+                <div>
+                  <h3 className="font-bold text-lg text-slate-700">Lecture {num}</h3>
+                  {userProgress[`lecture_${num}`]?.completedAt && <p className="text-slate-500 text-sm mt-1">{formatRelativeTime(userProgress[`lecture_${num}`].completedAt)}</p>}
+                </div>
                 {userProgress[`lecture_${num}`] && <div className="ml-auto text-xl font-black text-emerald-600">{Math.round(userProgress[`lecture_${num}`].lastScore)}%</div>}
               </div>
             </button>
