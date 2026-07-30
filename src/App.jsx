@@ -36,7 +36,10 @@ const UrduFontStyles = () => (
 );
 
 // --- NEON INITIALIZATION ---
-const sql = neon(import.meta.env.VITE_DATABASE_URL);
+const databaseUrl = import.meta.env.VITE_DATABASE_URL;
+const sql = databaseUrl ? neon(databaseUrl) : () => {
+  throw new Error("No database connection string was provided to neon(). Please set the VITE_DATABASE_URL environment variable.");
+};
 
 const SCHOOL_ID = 1; // Quran Academy Fsd
 const COURSE_ID = 1; // Arabic Insights
@@ -1497,6 +1500,39 @@ export default function App() {
       </main>
     </div>
   );
+
+  if (!import.meta.env.VITE_DATABASE_URL) {
+    return (
+      <div className="min-h-screen bg-slate-900 text-white flex items-center justify-center p-6 font-sans">
+        <div className="max-w-md w-full bg-slate-800 rounded-xl p-8 shadow-2xl border border-slate-700">
+          <div className="flex items-center justify-center w-16 h-16 bg-red-950 text-red-400 rounded-full mb-6 mx-auto border border-red-800">
+            <svg className="w-8 h-8" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+            </svg>
+          </div>
+          <h1 className="text-xl font-bold text-center mb-2">Configuration Error</h1>
+          <p className="text-slate-400 text-center text-sm mb-6">
+            The database connection string is missing. Please set the <strong className="text-white">VITE_DATABASE_URL</strong> environment variable.
+          </p>
+          <div className="bg-slate-950 p-4 rounded-lg text-xs font-mono text-slate-300 break-all mb-6">
+            Uncaught Error: No database connection string was provided to `neon()`.
+          </div>
+          <div className="space-y-4">
+            <h2 className="text-xs font-semibold text-slate-300 uppercase tracking-wider">How to fix in Netlify:</h2>
+            <ol className="text-xs text-slate-400 space-y-2 list-decimal list-inside">
+              <li>Go to your Netlify Dashboard.</li>
+              <li>Navigate to <strong>Site configuration</strong> &gt; <strong>Environment variables</strong>.</li>
+              <li>Click <strong>Add a variable</strong> &gt; <strong>Add a single variable</strong>.</li>
+              <li>Set the key as <code className="text-emerald-400 font-mono font-bold">VITE_DATABASE_URL</code>.</li>
+              <li>Set the value to your Neon PostgreSQL connection string.</li>
+              <li>Save the variable.</li>
+              <li>Go to <strong>Deploys</strong> and trigger a new deploy (or re-deploy) for the change to take effect.</li>
+            </ol>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   if (isLoadingData) return (
     <div className="min-h-screen flex items-center justify-center bg-slate-50">
