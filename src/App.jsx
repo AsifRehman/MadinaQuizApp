@@ -513,22 +513,33 @@ export default function App() {
   };
 
   const startQuiz = (lectureNum) => {
-    const questions = quizData.filter(q => q.lecture === lectureNum);
+    const questions = quizData.filter(q => q.lecture === lectureNum).map(q => {
+      const optionsWithIdx = q.options.map((opt, idx) => ({ ...opt, originalIdx: idx }));
+      const shuffledOptions = optionsWithIdx
+        .map(value => ({ value, sort: Math.random() }))
+        .sort((a, b) => a.sort - b.sort)
+        .map(({ value }) => value);
+      return {
+        ...q,
+        options: shuffledOptions
+      };
+    });
     setCurrentLecture(lectureNum);
     setQuizState({ active: true, questions, currentIndex: 0, score: 0, showResult: false, answers: [] });
   };
 
   const handleAnswer = (optionIndex) => {
     const currentQ = quizState.questions[quizState.currentIndex];
-    const isCorrect = optionIndex === currentQ.correct;
+    const clickedOption = currentQ.options[optionIndex];
+    const isCorrect = clickedOption.originalIdx === currentQ.correct;
     const newScore = isCorrect ? quizState.score + 1 : quizState.score;
     const nextIndex = quizState.currentIndex + 1;
 
     if (nextIndex < quizState.questions.length) {
-      setQuizState({ ...quizState, currentIndex: nextIndex, score: newScore, answers: [...quizState.answers, optionIndex] });
+      setQuizState({ ...quizState, currentIndex: nextIndex, score: newScore, answers: [...quizState.answers, clickedOption.originalIdx] });
     } else {
       const finalScore = (newScore / quizState.questions.length) * 100;
-      const finalAnswers = [...quizState.answers, optionIndex];
+      const finalAnswers = [...quizState.answers, clickedOption.originalIdx];
       setQuizState({ ...quizState, score: newScore, showResult: true, answers: finalAnswers });
       saveProgress(currentLecture, finalScore, finalAnswers);
     }
@@ -570,7 +581,18 @@ export default function App() {
   // Sync quizState when quizData changes if taking quiz
   useEffect(() => {
     if (quizState.active && quizData.length > 0 && quizState.questions.length === 0) {
-      setQuizState(prev => ({ ...prev, questions: quizData }));
+      const shuffledQuestions = quizData.map(q => {
+        const optionsWithIdx = q.options.map((opt, idx) => ({ ...opt, originalIdx: idx }));
+        const shuffledOptions = optionsWithIdx
+          .map(value => ({ value, sort: Math.random() }))
+          .sort((a, b) => a.sort - b.sort)
+          .map(({ value }) => value);
+        return {
+          ...q,
+          options: shuffledOptions
+        };
+      });
+      setQuizState(prev => ({ ...prev, questions: shuffledQuestions }));
     }
   }, [quizData, quizState.active]);
 
@@ -885,10 +907,10 @@ export default function App() {
                 <button 
                   key={i} 
                   onClick={() => {
-                    const isCorrect = i === q.correct;
+                    const isCorrect = opt.originalIdx === q.correct;
                     const newScore = isCorrect ? quizState.score + 1 : quizState.score;
                     const nextIndex = currentIndex + 1;
-                    const newAnswers = [...quizState.answers, i];
+                    const newAnswers = [...quizState.answers, opt.originalIdx];
 
                     if (nextIndex < questions.length) {
                       setQuizState({ ...quizState, currentIndex: nextIndex, score: newScore, answers: newAnswers });
