@@ -418,8 +418,8 @@ const questionsData = {
       correct: 0
     },
     {
-      en: "What is the rule for compound numbers 11-19 with a masculine counted noun?",
-      ur: "مذکر معدود کے ساتھ مرکب اعداد 11 سے 19 کا کیا قاعدہ ہے؟",
+      en: "What is the rule for compound numbers 13-19 with a masculine counted noun?",
+      ur: "مذکر معدود کے ساتھ مرکب اعداد 13 سے 19 کا کیا قاعدہ ہے؟",
       options: [
         { en: "Both parts match the counted noun in gender", ur: "دونوں حصے معدود کی جنس کے موافق ہوتے ہیں" },
         { en: "First part opposes, second part matches (e.g. khamsata 'ashara)", ur: "پہلا حصہ جنس میں الٹ ہوتا ہے، دوسرا حصہ موافق ہوتا ہے (جیسے خَمْسَةَ عَشَرَ)" },
@@ -440,8 +440,8 @@ const questionsData = {
       correct: 0
     },
     {
-      en: "What is the grammatical state of the two parts of numbers 11-19?",
-      ur: "اعداد 11 سے 19 کے دونوں حصوں کا اعرابی اعراب کیا ہوتا ہے؟",
+      en: "What is the grammatical state of the two parts of numbers 13-19?",
+      ur: "اعداد 13 سے 19 کے دونوں حصوں کا اعرابی حکم کیا ہوتا ہے؟",
       options: [
         { en: "They are Mabni (fixed) on Fatha (فتحة)", ur: "دونوں فتحہ پر مبنی (مبنی علی الفتح) ہوتے ہیں" },
         { en: "First part is declinable, second part is fixed", ur: "پہلا معرب اور دوسرا مبنی ہوتا ہے" },

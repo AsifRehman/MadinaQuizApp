@@ -81,6 +81,7 @@ export default function App() {
   const [selectedCourse, setSelectedCourse] = useState(savedSession?.selectedCourse || null);
   const [selectedLecture, setSelectedLecture] = useState(savedSession?.selectedLecture || null);
   const [quizzes, setQuizzes] = useState([]);
+  const [courseQuizzes, setCourseQuizzes] = useState([]);
   const [selectedQuiz, setSelectedQuiz] = useState(null);
   const [userProgress, setUserProgress] = useState({});
   const [allStudentsData, setAllStudentsData] = useState({});
@@ -196,7 +197,7 @@ export default function App() {
         WHERE l.course_id = ${courseId}
         ORDER BY l.order_index ASC, q.version ASC
       `;
-      setQuizzes(data);
+      setCourseQuizzes(data);
     } catch (err) { console.error("Fetch course quizzes error:", err); }
   };
 
@@ -332,7 +333,7 @@ export default function App() {
 
   useEffect(() => {
     if (!isLoggedIn || !selectedCourse?.id) return;
-    if (view === 'student_lectures' || view === 'student_quizzes') {
+    if (view === 'student_lectures') {
       fetchLectures(selectedCourse.id);
       fetchCourseQuizzes(selectedCourse.id);
     }
@@ -802,7 +803,7 @@ export default function App() {
   };
 
   const getLectureProgress = (lecture) => {
-    const lectureQuizzes = quizzes.filter(q => q.lecture_id === lecture.id);
+    const lectureQuizzes = courseQuizzes.filter(q => q.lecture_id === lecture.id);
     const attemptedQuizzes = lectureQuizzes.filter(q => userProgress[`quiz_${q.id}`]);
     const latestAttempt = attemptedQuizzes
       .flatMap(q => userProgress[`quiz_${q.id}`]?.attempts || [])
@@ -1255,9 +1256,9 @@ export default function App() {
               </button>
             </div>
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-              {Array.from(new Set(quizzes.map(q => q.title))).map(title => {
-                const quizGroup = quizzes.find(q => q.title === title);
-                const versionsCount = quizzes.filter(q => q.title === title).length;
+              {Array.from(new Set(courseQuizzes.map(q => q.title))).map(title => {
+                const quizGroup = courseQuizzes.find(q => q.title === title);
+                const versionsCount = courseQuizzes.filter(q => q.title === title).length;
                 return (
                   <button 
                     key={title}
@@ -1276,7 +1277,7 @@ export default function App() {
                   </button>
                 );
               })}
-              {quizzes.length === 0 && (
+              {courseQuizzes.length === 0 && (
                 <div className="col-span-full py-12 text-center bg-slate-100 rounded-3xl border-2 border-dashed border-slate-200">
                   <p className="text-slate-400 font-bold">No quizzes available for this course.</p>
                 </div>
@@ -1294,7 +1295,7 @@ export default function App() {
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
               <button 
                 onClick={() => {
-                  const baseQuiz = quizzes.filter(q => q.title === selectedQuizTitle).sort((a, b) => b.version - a.version)[0];
+                  const baseQuiz = courseQuizzes.filter(q => q.title === selectedQuizTitle).sort((a, b) => b.version - a.version)[0];
                   handleAiGenerateVersion(baseQuiz);
                 }}
                 disabled={isGeneratingAi}
@@ -1308,7 +1309,7 @@ export default function App() {
                   <span className="text-[10px] text-emerald-600 uppercase font-black tracking-widest">New Version</span>
                 </div>
               </button>
-              {quizzes.filter(q => q.title === selectedQuizTitle).map(quiz => (
+              {courseQuizzes.filter(q => q.title === selectedQuizTitle).map(quiz => (
                 <button 
                   key={quiz.id}
                   onClick={() => { 
