@@ -43,14 +43,31 @@ const sql = databaseUrl ? neon(databaseUrl) : () => {
 
 const SCHOOL_ID = 1; // Quran Academy Fsd
 const COURSE_ID = 1; // Arabic Insights
+const SESSION_KEY = 'madina_quiz_session_v1';
+
+const getSavedSession = () => {
+  try {
+    return JSON.parse(localStorage.getItem(SESSION_KEY) || 'null');
+  } catch {
+    return null;
+  }
+};
+
+const getInitialView = (savedSession) => {
+  const routeView = window.location.hash.replace(/^#\/?/, '');
+  if (routeView) return routeView;
+  if (savedSession?.view) return savedSession.view;
+  return 'login';
+};
 
 export default function App() {
-  const [studentName, setStudentName] = useState('');
-  const [studentId, setStudentId] = useState(null);
+  const savedSession = getSavedSession();
+  const [studentName, setStudentName] = useState(savedSession?.studentName || '');
+  const [studentId, setStudentId] = useState(savedSession?.studentId || null);
   const [password, setPassword] = useState('');
   const [loginError, setLoginError] = useState('');
   const [isLoggingIn, setIsLoggingIn] = useState(false);
-  const [isLoggedIn, setIsLoggedIn] = useState(false);
+  const [isLoggedIn, setIsLoggedIn] = useState(Boolean(savedSession?.studentId && savedSession?.userRole));
   const [currentLecture, setCurrentLecture] = useState(null);
   const [lectures, setLectures] = useState([]);
   const [quizData, setQuizData] = useState([]);
@@ -58,11 +75,11 @@ export default function App() {
   const [quizState, setQuizState] = useState({
     active: false, questions: [], currentIndex: 0, score: 0, showResult: false, answers: []
   });
-  const [view, setView] = useState('login'); // login, student_courses, student_lectures, student_quizzes, quiz_taking, instructor_courses, instructor_course_detail, instructor_lecture_detail, admin_dashboard, admin_manage_courses, admin_assign_courses
-  const [userRole, setUserRole] = useState(null);
+  const [view, setView] = useState(getInitialView(savedSession)); // login, student_courses, student_lectures, student_quizzes, quiz_taking, instructor_courses, instructor_course_detail, instructor_lecture_detail, admin_dashboard, admin_manage_courses, admin_assign_courses
+  const [userRole, setUserRole] = useState(savedSession?.userRole || null);
   const [courses, setCourses] = useState([]);
-  const [selectedCourse, setSelectedCourse] = useState(null);
-  const [selectedLecture, setSelectedLecture] = useState(null);
+  const [selectedCourse, setSelectedCourse] = useState(savedSession?.selectedCourse || null);
+  const [selectedLecture, setSelectedLecture] = useState(savedSession?.selectedLecture || null);
   const [quizzes, setQuizzes] = useState([]);
   const [selectedQuiz, setSelectedQuiz] = useState(null);
   const [userProgress, setUserProgress] = useState({});
@@ -103,6 +120,44 @@ export default function App() {
     }
     return 'just now';
   };
+
+  const navigateTo = (nextView, { replace = false } = {}) => {
+    setView(nextView);
+    const nextHash = `#/${nextView}`;
+    if (window.location.hash !== nextHash) {
+      const method = replace ? 'replaceState' : 'pushState';
+      window.history[method](null, '', nextHash);
+    }
+  };
+
+  useEffect(() => {
+    const handleRouteChange = () => {
+      const routeView = window.location.hash.replace(/^#\/?/, '');
+      if (routeView) setView(routeView);
+    };
+    window.addEventListener('popstate', handleRouteChange);
+    window.addEventListener('hashchange', handleRouteChange);
+    return () => {
+      window.removeEventListener('popstate', handleRouteChange);
+      window.removeEventListener('hashchange', handleRouteChange);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!isLoggedIn) return;
+    localStorage.setItem(SESSION_KEY, JSON.stringify({
+      studentId,
+      studentName,
+      userRole,
+      view,
+      selectedCourse,
+      selectedLecture
+    }));
+    const nextHash = `#/${view}`;
+    if (window.location.hash !== nextHash) {
+      window.history.replaceState(null, '', nextHash);
+    }
+  }, [isLoggedIn, studentId, studentName, userRole, view, selectedCourse, selectedLecture]);
 
   const fetchCourses = async () => {
     try {
@@ -243,12 +298,51 @@ export default function App() {
         correct: q.correct_option_index
       }));
       setQuizData(mappedQuestions);
+      return mappedQuestions;
     } catch (err) { console.error("Fetch quiz data error:", err); }
+    return [];
+  };
+
+  const normalizeAnswers = (answers) => {
+    if (!answers) return [];
+    if (Array.isArray(answers)) return answers;
+    try {
+      return JSON.parse(answers);
+    } catch {
+      return [];
+    }
+  };
+
+  const openResultDetails = async ({ quizId, studentName: detailStudentName, lectureNum, data }) => {
+    await fetchQuizData(quizId);
+    setViewingDetails({
+      studentName: detailStudentName,
+      lectureNum,
+      data: {
+        ...data,
+        lastScore: data.lastScore ?? data.score,
+        answers: normalizeAnswers(data.answers)
+      }
+    });
   };
 
   useEffect(() => {
     fetchCourses();
   }, [isLoggedIn, userRole, studentId]);
+
+  useEffect(() => {
+    if (!isLoggedIn || !selectedCourse?.id) return;
+    if (view === 'student_lectures' || view === 'student_quizzes') {
+      fetchLectures(selectedCourse.id);
+      fetchCourseQuizzes(selectedCourse.id);
+    }
+    if (view === 'student_quizzes' && selectedLecture?.id) {
+      fetchQuizzes(selectedLecture.id);
+    }
+    if (view === 'quiz_taking' && !selectedQuiz?.id) {
+      navigateTo(selectedLecture?.id ? 'student_quizzes' : 'student_lectures', { replace: true });
+    }
+  }, [isLoggedIn, view, selectedCourse?.id, selectedLecture?.id, selectedQuiz?.id]);
 
   const fetchAssignedCourses = async (uid) => {
     try {
@@ -365,18 +459,21 @@ export default function App() {
       }
 
       const results = await sql`
-        SELECT r.*, u.username, l.order_index as lecture_num
+        SELECT r.*, u.username, l.order_index as lecture_num, qz.id as quiz_id, qz.title as quiz_title
         FROM results r
         JOIN users u ON r.user_id = u.id
         JOIN quizzes qz ON r.quiz_id = qz.id
         JOIN lectures l ON qz.lecture_id = l.id
         WHERE u.school_id = ${SCHOOL_ID}
+        ORDER BY r.completed_at ASC
       `;
 
       const allData = {};
       students.forEach(s => allData[s.username] = {});
       results.forEach(r => {
         allData[r.username][`lecture_${r.lecture_num}`] = {
+          quizId: r.quiz_id,
+          quizTitle: r.quiz_title,
           lastScore: parseFloat(r.score),
           completedAt: r.completed_at,
           answers: typeof r.answers === 'string' ? JSON.parse(r.answers) : r.answers
@@ -415,6 +512,7 @@ export default function App() {
     if (!isLoggedIn) return;
     
     if (userRole === 'instructor' || userRole === 'admin') {
+      if (viewingDetails) return;
       fetchAllStudentsData();
       fetchUsers();
       fetchLoginLogs();
@@ -426,7 +524,7 @@ export default function App() {
     } else if (userRole === 'student' && studentId) {
       fetchStudentData(studentId);
     }
-  }, [userRole, studentId, isLoggedIn]);
+  }, [userRole, studentId, isLoggedIn, viewingDetails]);
 
   const handleLogin = async (e) => {
     e.preventDefault();
@@ -451,9 +549,16 @@ export default function App() {
         setUserRole(user.role);
         setIsLoggedIn(true);
         
-        if (user.role === 'student') setView('student_courses');
-        else if (user.role === 'instructor') setView('instructor_courses');
-        else if (user.role === 'admin') setView('admin_dashboard');
+        const nextView = user.role === 'student' ? 'student_courses' : user.role === 'instructor' ? 'instructor_courses' : 'admin_dashboard';
+        localStorage.setItem(SESSION_KEY, JSON.stringify({
+          studentId: user.id,
+          studentName: user.username,
+          userRole: user.role,
+          view: nextView,
+          selectedCourse: null,
+          selectedLecture: null
+        }));
+        navigateTo(nextView, { replace: true });
       } else {
         if (user) {
           await sql`
@@ -562,20 +667,32 @@ export default function App() {
   const goToStudentLectures = (course) => {
     setSelectedCourse(course);
     fetchLectures(course.id);
-    setView('student_lectures');
+    fetchCourseQuizzes(course.id);
+    navigateTo('student_lectures');
   };
 
   const goToStudentQuizzes = (lecture) => {
     setSelectedLecture(lecture);
     fetchQuizzes(lecture.id);
-    setView('student_quizzes');
+    navigateTo('student_quizzes');
   };
 
   const startTakingQuiz = async (quiz) => {
     setSelectedQuiz(quiz);
-    await fetchQuizData(quiz.id);
-    setQuizState({ active: true, questions: [], currentIndex: 0, score: 0, showResult: false, answers: [] });
-    setView('quiz_taking');
+    const questions = await fetchQuizData(quiz.id);
+    const shuffledQuestions = questions.map(q => {
+      const optionsWithIdx = q.options.map((opt, idx) => ({ ...opt, originalIdx: idx }));
+      const shuffledOptions = optionsWithIdx
+        .map(value => ({ value, sort: Math.random() }))
+        .sort((a, b) => a.sort - b.sort)
+        .map(({ value }) => value);
+      return {
+        ...q,
+        options: shuffledOptions
+      };
+    });
+    setQuizState({ active: true, questions: shuffledQuestions, currentIndex: 0, score: 0, showResult: false, answers: [] });
+    navigateTo('quiz_taking');
   };
 
   // Sync quizState when quizData changes if taking quiz
@@ -602,7 +719,10 @@ export default function App() {
     setStudentId(null);
     setUserRole(null);
     setPassword('');
-    setView('login');
+    localStorage.removeItem(SESSION_KEY);
+    setSelectedCourse(null);
+    setSelectedLecture(null);
+    navigateTo('login', { replace: true });
     setUserProgress({});
   };
 
@@ -681,6 +801,20 @@ export default function App() {
     );
   };
 
+  const getLectureProgress = (lecture) => {
+    const lectureQuizzes = quizzes.filter(q => q.lecture_id === lecture.id);
+    const attemptedQuizzes = lectureQuizzes.filter(q => userProgress[`quiz_${q.id}`]);
+    const latestAttempt = attemptedQuizzes
+      .flatMap(q => userProgress[`quiz_${q.id}`]?.attempts || [])
+      .sort((a, b) => new Date(b.completedAt) - new Date(a.completedAt))[0];
+
+    const total = lectureQuizzes.length;
+    const attempted = attemptedQuizzes.length;
+    const status = total > 0 && attempted === total ? 'complete' : attempted > 0 ? 'partial' : 'none';
+
+    return { total, attempted, status, latestAttempt };
+  };
+
   const StudentCourses = () => (
     <div className="min-h-screen bg-slate-50">
       <Header title="My Courses" />
@@ -715,7 +849,7 @@ export default function App() {
 
   const StudentLectures = () => (
     <div className="min-h-screen bg-slate-50">
-      <Header title={selectedCourse?.name} showBack onBack={() => setView('student_courses')} />
+      <Header title={selectedCourse?.name} showBack onBack={() => navigateTo('student_courses')} />
       <main className="max-w-4xl mx-auto p-6 md:p-8">
         <div className="flex items-center justify-between mb-8">
           <h2 className="text-2xl font-black text-slate-800">Lectures / لیکچرز</h2>
@@ -724,22 +858,60 @@ export default function App() {
           </span>
         </div>
         <div className="grid gap-4">
-          {lectures.map(lec => (
-            <button 
-              key={lec.id} 
-              onClick={() => goToStudentQuizzes(lec)}
-              className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm hover:shadow-md hover:border-emerald-300 text-left transition-all group flex items-center gap-6"
-            >
-              <div className="w-14 h-14 rounded-2xl flex items-center justify-center font-black text-2xl bg-slate-50 text-slate-400 group-hover:bg-emerald-600 group-hover:text-white transition-all shadow-inner border border-slate-100">
-                {lec.order_index}
-              </div>
-              <div className="flex-1">
-                <h3 className="font-bold text-xl text-slate-700">{lec.title}</h3>
-                <p className="text-slate-400 text-sm">Select to view available quizzes</p>
-              </div>
-              <ChevronRight className="text-slate-300 group-hover:text-emerald-500 transition-colors" />
-            </button>
-          ))}
+          {lectures.map(lec => {
+            const progress = getLectureProgress(lec);
+            const palette = progress.status === 'complete'
+              ? {
+                  card: 'bg-emerald-50/70 border-emerald-300 hover:border-emerald-500',
+                  number: 'bg-emerald-600 text-white border-emerald-600',
+                  badge: 'bg-emerald-600 text-white',
+                  icon: 'text-emerald-600',
+                  label: 'All Versions Attempted'
+                }
+              : progress.status === 'partial'
+                ? {
+                    card: 'bg-amber-50/70 border-amber-300 hover:border-amber-500',
+                    number: 'bg-amber-500 text-white border-amber-500',
+                    badge: 'bg-amber-500 text-white',
+                    icon: 'text-amber-500',
+                    label: 'Partially Attempted'
+                  }
+                : {
+                    card: 'bg-red-50/60 border-red-200 hover:border-red-400',
+                    number: 'bg-red-500 text-white border-red-500',
+                    badge: 'bg-red-500 text-white',
+                    icon: 'text-red-500',
+                    label: 'Not Attempted'
+                  };
+            return (
+              <button 
+                key={lec.id} 
+                onClick={() => goToStudentQuizzes(lec)}
+                className={`p-5 rounded-2xl border shadow-sm hover:shadow-md text-left transition-all group flex items-center gap-6 ${palette.card}`}
+              >
+                <div className={`w-14 h-14 rounded-2xl flex items-center justify-center font-black text-2xl transition-all shadow-inner border ${palette.number}`}>
+                  {lec.order_index}
+                </div>
+                <div className="flex-1 min-w-0">
+                  <div className="flex flex-wrap items-center gap-3 mb-1">
+                    <h3 className="font-bold text-xl text-slate-800">{lec.title}</h3>
+                    <span className={`px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest ${palette.badge}`}>
+                      {palette.label}
+                    </span>
+                  </div>
+                  <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm font-bold">
+                    <span className="text-slate-500">
+                      {progress.attempted}/{progress.total || 0} versions attempted
+                    </span>
+                    <span className={progress.latestAttempt ? 'text-slate-600' : 'text-slate-400'}>
+                      {progress.latestAttempt ? `Last attempted ${formatRelativeTime(progress.latestAttempt.completedAt)}` : 'No attempt yet'}
+                    </span>
+                  </div>
+                </div>
+                <ChevronRight className={`${palette.icon} transition-colors shrink-0`} />
+              </button>
+            );
+          })}
         </div>
       </main>
     </div>
@@ -747,7 +919,7 @@ export default function App() {
 
   const StudentQuizzes = () => (
     <div className="min-h-screen bg-slate-50">
-      <Header title={`${selectedLecture?.title} Quizzes`} showBack onBack={() => setView('student_lectures')} />
+      <Header title={`${selectedLecture?.title} Quizzes`} showBack onBack={() => navigateTo('student_lectures')} />
       <main className="max-w-4xl mx-auto p-6 md:p-8">
         <StudentProgressSummary compact />
         <h2 className="text-2xl font-black mb-8 text-slate-800">Select Quiz / کوئز منتخب کریں</h2>
@@ -755,9 +927,8 @@ export default function App() {
           {quizzes.map(quiz => {
             const result = userProgress[`quiz_${quiz.id}`];
             return (
-              <button 
+              <div 
                 key={quiz.id} 
-                onClick={() => startTakingQuiz(quiz)}
                 className="bg-white p-6 rounded-3xl border-2 border-slate-100 shadow-sm hover:shadow-xl hover:border-emerald-500 text-left transition-all group relative"
               >
                 <div className="flex items-start justify-between mb-4">
@@ -788,10 +959,19 @@ export default function App() {
                     </div>
                     <div className="space-y-2">
                       {result.attempts.slice(0, 3).map((attempt, index) => (
-                        <div key={attempt.id || index} className="flex items-center justify-between text-xs font-bold text-slate-500">
-                          <span>Attempt {result.attemptCount - index}</span>
+                        <button
+                          key={attempt.id || index}
+                          onClick={() => openResultDetails({
+                            quizId: quiz.id,
+                            studentName,
+                            lectureNum: selectedLecture?.order_index,
+                            data: { ...attempt, lastScore: attempt.score }
+                          })}
+                          className="w-full flex items-center justify-between text-xs font-bold text-slate-500 hover:text-emerald-600 hover:bg-emerald-50 rounded-xl px-3 py-2 transition-all"
+                        >
+                          <span>Review Attempt {result.attemptCount - index}</span>
                           <span className="tabular-nums">{Math.round(attempt.score)}% - {formatRelativeTime(attempt.completedAt)}</span>
-                        </div>
+                        </button>
                       ))}
                       {result.attemptCount > 3 && (
                         <p className="text-[10px] font-black uppercase tracking-widest text-slate-300">
@@ -799,14 +979,23 @@ export default function App() {
                         </p>
                       )}
                     </div>
+                    <button
+                      onClick={() => startTakingQuiz(quiz)}
+                      className="w-full bg-slate-900 text-white font-black py-3 rounded-2xl hover:bg-black transition-all"
+                    >
+                      Start New Attempt
+                    </button>
                   </div>
                 ) : (
-                  <div className="flex items-center gap-2 text-emerald-600 font-bold text-sm mt-4">
+                  <button
+                    onClick={() => startTakingQuiz(quiz)}
+                    className="flex items-center gap-2 text-emerald-600 font-bold text-sm mt-4 hover:text-emerald-700 transition-colors"
+                  >
                     <Plus size={16} />
                     <span>Start New Attempt</span>
-                  </div>
+                  </button>
                 )}
-              </button>
+              </div>
             );
           })}
           {quizzes.length === 0 && (
@@ -816,6 +1005,51 @@ export default function App() {
           )}
         </div>
       </main>
+      {viewingDetails && (
+        <div className="fixed inset-0 bg-slate-900/80 backdrop-blur-md z-50 flex items-center justify-center p-4">
+          <div className="bg-white w-full max-w-2xl max-h-[90vh] rounded-[3rem] shadow-2xl overflow-hidden flex flex-col">
+            <header className="p-8 border-b flex justify-between items-start bg-slate-50/50">
+              <div>
+                <h3 className="text-2xl font-black text-slate-800">{viewingDetails.studentName}</h3>
+                <div className="flex items-center gap-3 mt-1">
+                  <span className="bg-emerald-600 text-white px-3 py-1 rounded-full text-xs font-black uppercase tabular-nums">{Math.round(viewingDetails.data.lastScore)}%</span>
+                  <span className="text-slate-400 text-sm font-medium">Lecture {viewingDetails.lectureNum} Assessment</span>
+                </div>
+              </div>
+              <button onClick={() => setViewingDetails(null)} className="p-3 hover:bg-slate-200 rounded-full transition-colors text-slate-400"><X size={32} /></button>
+            </header>
+            <div className="p-8 overflow-y-auto space-y-8 flex-1">
+              {quizData.map((q, idx) => {
+                const studentAnswer = viewingDetails.data.answers ? viewingDetails.data.answers[idx] : null;
+                const isCorrect = studentAnswer === q.correct;
+                return (
+                  <div key={idx} className={`p-8 rounded-[2rem] border-2 ${isCorrect ? 'border-emerald-100 bg-emerald-50/20' : 'border-red-100 bg-red-50/20'}`}>
+                    <div className="flex justify-between items-start gap-4 mb-6">
+                      <span className={`w-8 h-8 rounded-xl shadow-sm flex items-center justify-center font-black text-xs shrink-0 ${isCorrect ? 'bg-emerald-500 text-white' : 'bg-red-500 text-white'}`}>{idx + 1}</span>
+                      <div className="text-right flex-1">
+                        <p className="font-bold text-xl mb-2 text-slate-800">{q.qEn}</p>
+                        <p dir="rtl" className="font-urdu text-2xl text-emerald-800">{q.qUr}</p>
+                      </div>
+                    </div>
+                    <div className="grid grid-cols-1 gap-3">
+                      {q.options.map((opt, optIdx) => {
+                        let style = 'bg-white border-slate-100 text-slate-500'; let icon = null;
+                        if (optIdx === q.correct) { style = 'bg-emerald-600 border-emerald-600 text-white shadow-lg shadow-emerald-100'; icon = <CheckCircle2 size={18} />; }
+                        else if (optIdx === studentAnswer) { style = 'bg-red-500 border-red-500 text-white shadow-lg shadow-red-100'; icon = <XCircle size={18} />; }
+                        return (
+                          <div key={optIdx} className={`p-4 rounded-xl border flex items-center justify-between font-bold ${style}`}>
+                            <div className="flex items-center gap-4"><span>{opt.en}</span><span dir="rtl" className="font-urdu text-base opacity-70">{opt.ur}</span></div>{icon}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 
@@ -847,6 +1081,23 @@ export default function App() {
           
           <div className="grid gap-3">
             <button 
+              onClick={() => {
+                openResultDetails({
+                  quizId: selectedQuiz.id,
+                  studentName,
+                  lectureNum: selectedLecture?.order_index,
+                  data: {
+                    lastScore: (score / questions.length) * 100,
+                    answers: quizState.answers
+                  }
+                });
+                navigateTo('student_quizzes');
+              }} 
+              className="w-full bg-emerald-600 text-white font-black py-5 rounded-2xl shadow-xl hover:bg-emerald-700 transition-all active:scale-95"
+            >
+              Review Answers
+            </button>
+            <button 
               onClick={() => startTakingQuiz(selectedQuiz)} 
               className="w-full bg-slate-900 text-white font-black py-5 rounded-2xl shadow-xl hover:bg-black transition-all active:scale-95"
             >
@@ -855,7 +1106,7 @@ export default function App() {
             <button 
               onClick={() => {
                 setQuizState({ active: false, questions: [], currentIndex: 0, score: 0, showResult: false, answers: [] });
-                setView('student_quizzes');
+                navigateTo('student_quizzes');
               }} 
               className="w-full bg-white text-slate-500 font-bold py-4 rounded-2xl hover:bg-slate-50 transition-all"
             >
@@ -882,7 +1133,7 @@ export default function App() {
       <div className="min-h-screen bg-slate-50 flex flex-col">
         <header className="bg-white h-16 border-b flex items-center justify-between px-6 sticky top-0 z-10">
           <div className="flex items-center gap-4">
-            <button onClick={() => setView('student_quizzes')} className="text-slate-400 hover:text-red-500 transition-colors">
+            <button onClick={() => navigateTo('student_quizzes')} className="text-slate-400 hover:text-red-500 transition-colors">
               <X size={24} />
             </button>
             <div className="h-8 w-[1px] bg-slate-100"></div>
@@ -1115,8 +1366,12 @@ export default function App() {
                         <td className="px-6 py-4">
                           <button 
                             onClick={async () => {
-                              await fetchQuizData(selectedQuiz.id);
-                              setViewingDetails({ studentName: res.username, lectureNum: selectedQuiz.title, data: { ...res, lastScore: res.score } });
+                              await openResultDetails({
+                                quizId: selectedQuiz.id,
+                                studentName: res.username,
+                                lectureNum: selectedQuiz.title,
+                                data: { ...res, lastScore: res.score }
+                              });
                             }}
                             className="text-emerald-600 font-bold text-xs hover:underline"
                           >
@@ -1148,10 +1403,12 @@ export default function App() {
                           key={lec.id} 
                           onClick={async () => {
                             if (d) {
-                              // We need to find the quiz ID for this lecture to fetch questions
-                              // For now, it's a bit complex with allStudentsData structure
-                              // but let's at least try to fetch if we had quiz_id saved
-                              setViewingDetails({ studentName: name, lectureNum: lec.order_index, data: d });
+                              await openResultDetails({
+                                quizId: d.quizId,
+                                studentName: name,
+                                lectureNum: lec.order_index,
+                                data: d
+                              });
                             }
                           }}
                           className={`min-w-[100px] p-3 rounded-xl border text-center transition-all ${d ? 'bg-emerald-50 border-emerald-200 hover:scale-105' : 'bg-slate-50 border-slate-100 opacity-40 cursor-default'}`}
