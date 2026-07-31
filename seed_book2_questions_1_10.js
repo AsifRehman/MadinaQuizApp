@@ -288,8 +288,8 @@ const questionsData = {
       ur: "'هُنَّ' کے لیے لیس کی گردان کیا ہے؟",
       options: [
         { en: "Laysat (لَيْسَتْ)", ur: "لَيْسَتْ" },
-        { en: "Lasna (لَسْنَا)", ur: "لَسْنَا" },
-        { en: "Lasna (لَسْنَّ)", ur: "لَسْنَّ" },
+        { en: "Lasnaa (لَسْنَا)", ur: "لَسْنَا" },
+        { en: "Lasna (لَسْنَ)", ur: "لَسْنَ" },
         { en: "Lastun (لَسْتُنَّ)", ur: "لَسْتُنَّ" }
       ],
       correct: 2
@@ -815,18 +815,18 @@ const questionsData = {
         { en: "Ahyā' (أَحْيَاءٌ)", ur: "أَحْيَاءٌ" },
         { en: "Hayyuna (حَيُّونَ)", ur: "حَيُّونَ" }
       ],
-      correct: 1
+      correct: 0
     },
     {
       en: "What is the plural of 'Babul fasl' (بَابُ الْفَصْلِ - class door)?",
       ur: "'بَابُ الْفَصْلِ' کی جمع کیا ہوگی؟",
       options: [
         { en: "Abwabu al-fasli", ur: "أَبْوَابُ الْفَصْلِ" },
-        { en: "Abwabu al-fusooli", ur: "أَبْوَابُ الْفُصُولِ" },
+        { en: "Abwabu al-faseeli", ur: "أَبْوَابُ الفَصیِلِ" },
         { en: "Bawwaabatu al-fasli", ur: "بَوَّابَاتُ الْفَصْلِ" },
         { en: "Baitaani al-fasli", ur: "بَيْتَانِ الْفَصْلِ" }
       ],
-      correct: 1
+      correct: 0
     },
     {
       en: "If the Fa'il is a visible noun (like 'Bilal'), does the verb agree in plural number?",
@@ -1286,6 +1286,39 @@ const questionsData = {
       correct: 1
     },
     {
+      en: "In Exercise 1, how do you vocalize the middle letter of 'yaktub' (present of kataba)?",
+      ur: "مشق 1 کے مطابق، 'كَتَبَ' کا مضارع 'يَكْتُب' میں درمیانی حرف پر کیا حرکت ہے؟",
+      options: [
+        { en: "Fatha (يَكْتَب)", ur: "فتحہ" },
+        { en: "Dhamma (يَكْتُب)", ur: "ضمہ (پیش)" },
+        { en: "Kasra (يَكْتِب)", ur: "کسرہ" },
+        { en: "Sukun (يَكْتْب)" }
+      ],
+      correct: 1
+    },
+    {
+      en: "In Exercise 2, how do you vocalize the middle letter of 'yajlis' (present of jalasa)?",
+      ur: "مشق 2 کے مطابق، 'جَلَسَ' کا مضارع 'يَجْلِس' میں درمیانی حرف پر کیا حرکت ہے؟",
+      options: [
+        { en: "Fatha (يَجْلَس)", ur: "فتحہ" },
+        { en: "Kasra (يَجْلِس)", ur: "کسرہ (زیر)" },
+        { en: "Dhamma (يَجْلُس)", ur: "ضمہ" },
+        { en: "Sukun" }
+      ],
+      correct: 1
+    },
+    {
+      en: "In Exercise 3, how do you vocalize the middle letter of 'yaftah' (present of fataha)?",
+      ur: "مشق 3 کے مطابق، 'فَتَحَ' کا مضارع 'يَفْتَح' میں درمیانی حرف پر کیا حرکت ہے؟",
+      options: [
+        { en: "Fatha (يَفْتَح)", ur: "فتحہ (زبر)" },
+        { en: "Kasra (يَفْتِح)", ur: "کسرہ" },
+        { en: "Dhamma (يَفْتُح)", ur: "ضمہ" },
+        { en: "Sukun" }
+      ],
+      correct: 0
+    },
+    {
       en: "Translate: 'We ate the breakfast'",
       ur: "ترجمہ کریں: 'ہم نے ناشتہ کھایا'",
       options: [
@@ -1505,7 +1538,7 @@ const questionsData = {
         { en: "Yaa jaddi! (my grandfather)", ur: "يَا جَدِّي!" },
         { en: "Both Yaa jaddu and Yaa jaddi are correct depending on intent", ur: "يَا جَدُّ اور يَا جَدِّي دونوں درست ہیں" }
       ],
-      correct: 3
+      correct: 0
     }
   ],
   10: [ // Lesson 10: المضارع مسنداً لبعض الضمائر، أبواب الثلاثي، أعداد 21-30
@@ -1576,38 +1609,39 @@ const questionsData = {
       correct: 1
     },
     {
-      en: "In Exercise 1, how do you vocalize the middle letter of 'yaktubu' (present of kataba)?",
-      ur: "مشق 1 کے مطابق، 'كَتَبَ' کا مضارع 'يَكْتُبُ' میں درمیانی حرف پر کیا حرکت ہے؟",
+      en: "In Exercise 1, how do you vocalize the middle letter of 'yaktub...' (present of kataba)?",
+      ur: "مشق 1 کے مطابق، 'كَتَبَ' کا مضارع '\u064a\u064e\u0643\u0652\u062a\u0628\u064f' میں درمیانی حرف پر کیا حرکت ہے؟",
       options: [
-        { en: "Fatha (يَكْتَبُ)", ur: "فتحہ" },
-        { en: "Dhamma (يَكْتُبُ)", ur: "ضمہ (پیش)" },
-        { en: "Kasra (يَكْتِبُ)", ur: "کسرہ" },
-        { en: "Sukun (يَكْتْبُ)" }
+        { en: "Fatha (\u064a\u064e\u0643\u0652\u062a\u064e\u0628\u064f)", ur: "فتحہ" },
+        { en: "Dhamma (\u064a\u064e\u0643\u0652\u062a\u064f\u0628\u064f)", ur: "ضمہ (پیش)" },
+        { en: "Kasra (\u064a\u064e\u0643\u0652\u062a\u0650\u062b\u064f)", ur: "کسرہ" },
+        { en: "Sukun (\u064a\u064e\u0643\u0652\u062a\u0652\u0628\u064f)" }
       ],
       correct: 1
     },
     {
-      en: "In Exercise 2, how do you vocalize the middle letter of 'yajlisu' (present of jalasa)?",
-      ur: "مشق 2 کے مطابق، 'جَلَسَ' کا مضارع 'يَجْلِسُ' میں درمیانی حرف پر کیا حرکت ہے؟",
+      en: "In Exercise 2, how do you vocalize the middle letter of 'yajlis...' (present of jalasa)?",
+      ur: "مشق 2 کے مطابق، 'جَلَسَ' کا مضارع '\u064a\u064e\u062c\u0652\u0644\u0633\u064f' میں درمیانی حرف پر کیا حرکت ہے؟",
       options: [
-        { en: "Fatha (يَجْلَسُ)", ur: "فتحہ" },
-        { en: "Kasra (يَجْلِسُ)", ur: "کسرہ (زیر)" },
-        { en: "Dhamma (يَجْلُسُ)", ur: "ضمہ" },
+        { en: "Fatha (\u064a\u064e\u062c\u0652\u0644\u064e\u0633\u064f)", ur: "فتحہ" },
+        { en: "Kasra (\u064a\u064e\u062c\u0652\u0644\u0650\u0633\u064f)", ur: "کسرہ (زیر)" },
+        { en: "Dhamma (\u064a\u064e\u062c\u0652\u0644\u064f\u0633\u064f)", ur: "ضمہ" },
         { en: "Sukun" }
       ],
       correct: 1
     },
     {
-      en: "In Exercise 3, how do you vocalize the middle letter of 'yaftahu' (present of fataha)?",
-      ur: "مشق 3 کے مطابق، 'فَتَحَ' کا مضارع 'يَفْتَحُ' میں درمیانی حرف پر کیا حرکت ہے؟",
+      en: "In Exercise 3, how do you vocalize the middle letter of 'yaftah...' (present of fataha)?",
+      ur: "مشق 3 کے مطابق، 'فَتَحَ' کا مضارع '\u064a\u064e\u0641\u0652\u062a\u062d\u064f' میں درمیانی حرف پر کیا حرکت ہے؟",
       options: [
-        { en: "Fatha (يَفْتَحُ)", ur: "فتحہ (زبر)" },
-        { en: "Kasra (يَفْتِحُ)", ur: "کسرہ" },
-        { en: "Dhamma (يَفْتُحُ)", ur: "ضمہ" },
+        { en: "Fatha (\u064a\u064e\u0641\u0652\u062a\u064e\u062d\u064f)", ur: "فتحہ (زبر)" },
+        { en: "Kasra (\u064a\u064e\u0641\u0652\u062a\u0650\u062d\u064f)", ur: "کسرہ" },
+        { en: "Dhamma (\u064a\u064e\u0641\u0652\u062a\u064f\u062d\u064f)", ur: "ضمہ" },
         { en: "Sukun" }
       ],
       correct: 0
     },
+
     {
       en: "What are the four common doors/categories (Abwab) of three-letter verbs mentioned here?",
       ur: "یہاں ذکر کردہ ثلاثی مجرد کے چار ابواب کون سے ہیں؟",
