@@ -912,7 +912,7 @@ const questionsData = {
       ur: "ترجمہ کریں: 'میں نے اسے (مذکر) دیکھا'",
       options: [
         { en: "Ra'aituhu (رَأَيْتُهُ)", ur: "رَأَيْتُهُ" },
-        { en: "Ra'aitaha (رَأَيْتَهَا)", ur: "رَأَيْتَهَا" },
+        { en: "Ra'aituha (رَأَيْتُهَا)", ur: "رَأَيْتُهَا" },
         { en: "Ra'aituka (رَأَيْتُكَ)", ur: "رَأَيْتُكَ" },
         { en: "Ra'aitumuhu (رَأَيْتُمُوهُ)" }
       ],
@@ -923,15 +923,15 @@ const questionsData = {
       ur: "ترجمہ کریں: 'میں نے اسے (مؤنث) دیکھا'",
       options: [
         { en: "Ra'aituhu (رَأَيْتُهُ)", ur: "رَأَيْتُهُ" },
-        { en: "Ra'aitaha (رَأَيْتَهَا)", ur: "رَأَيْتَهَا" },
+        { en: "Ra'aituha (رَأَيْتُهَا)", ur: "رَأَيْتُهَا" },
         { en: "Ra'aituka (رَأَيْتُكَ)", ur: "رَأَيْتُكَ" },
         { en: "Ra'aituni (رَأَيْتُنِي)" }
       ],
       correct: 1
     },
     {
-      en: "What is the rule for compound numbers 11-19 with a feminine counted noun?",
-      ur: "مؤنث معدود کے ساتھ مرکب اعداد 11 سے 19 کا کیا قاعدہ ہے؟",
+      en: "What is the rule for compound numbers 13-19 with a feminine counted noun?",
+      ur: "مؤنث معدود کے ساتھ مرکب اعداد 13 سے 19 کا کیا قاعدہ ہے؟",
       options: [
         { en: "First part is masculine (opposes), second part is feminine (matches) (e.g. khamsa 'ashrata)", ur: "پہلا حصہ مذکر (الٹ) اور دوسرا حصہ مؤنث (موافق) ہوتا ہے (جیسے خَمْسَ عَشَرَةَ)" },
         { en: "Both parts are feminine", ur: "دونوں حصے مؤنث ہوتے ہیں" },
@@ -990,10 +990,10 @@ const questionsData = {
       options: [
         { en: "Li-maza (لِمَاذَا - why?)", ur: "لِمَاذَا (کیوں؟)" },
         { en: "Li-man (لِمَنْ - whose?)", ur: "لِمَنْ" },
-        { en: "Li-ma (لِمَا - for what?)", ur: "لِمَا" },
+        { en: "Li-maa (لِمَا - why/for what?)", ur: "لِمَا" },
         { en: "Min-ma (مِمَّا)" }
       ],
-      correct: 0
+      correct: 2
     },
     {
       en: "What is the imperative word 'Haati' (هَاتِ) used for?",

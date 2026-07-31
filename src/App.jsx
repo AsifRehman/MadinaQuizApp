@@ -683,41 +683,43 @@ export default function App() {
     if (answerLockRef.current) return;
     answerLockRef.current = true;
 
-    let finished = null;
-    let accepted = false;
-
-    setQuizState(prev => {
-      if (!prev.active || prev.showResult) return prev;
-      // Already answered this question (answers length should equal current index).
-      if (prev.answers.length !== prev.currentIndex) return prev;
-
-      const currentQ = prev.questions[prev.currentIndex];
-      if (!currentQ) return prev;
-
-      accepted = true;
-      const isCorrect = Number(option.originalIdx) === Number(currentQ.correct);
-      const newScore = isCorrect ? prev.score + 1 : prev.score;
-      const newAnswers = [...prev.answers, createAnswerSnapshot(option, currentQ)];
-      const nextIndex = prev.currentIndex + 1;
-
-      if (nextIndex < prev.questions.length) {
-        return { ...prev, currentIndex: nextIndex, score: newScore, answers: newAnswers };
-      }
-
-      finished = {
-        score: (newScore / prev.questions.length) * 100,
-        answers: newAnswers
-      };
-      return { ...prev, score: newScore, showResult: true, answers: newAnswers };
-    });
-
-    if (!accepted) {
+    if (!quizState.active || quizState.showResult) {
+      answerLockRef.current = false;
+      return;
+    }
+    // Already answered this question (answers length should equal current index).
+    if (quizState.answers.length !== quizState.currentIndex) {
       answerLockRef.current = false;
       return;
     }
 
-    if (finished && persistQuizId != null) {
-      saveProgress(persistQuizId, finished.score, finished.answers);
+    const currentQ = quizState.questions[quizState.currentIndex];
+    if (!currentQ) {
+      answerLockRef.current = false;
+      return;
+    }
+
+    const isCorrect = Number(option.originalIdx) === Number(currentQ.correct);
+    const newScore = isCorrect ? quizState.score + 1 : quizState.score;
+    const newAnswers = [...quizState.answers, createAnswerSnapshot(option, currentQ)];
+    const nextIndex = quizState.currentIndex + 1;
+    const isFinished = nextIndex >= quizState.questions.length;
+
+    setQuizState(prev => {
+      // Re-verify inside state updater to be safe
+      if (!prev.active || prev.showResult) return prev;
+      if (prev.answers.length !== prev.currentIndex) return prev;
+
+      if (isFinished) {
+        return { ...prev, score: newScore, showResult: true, answers: newAnswers };
+      } else {
+        return { ...prev, currentIndex: nextIndex, score: newScore, answers: newAnswers };
+      }
+    });
+
+    if (isFinished && persistQuizId != null) {
+      const finalScore = (newScore / quizState.questions.length) * 100;
+      saveProgress(persistQuizId, finalScore, newAnswers);
     }
   };
 
@@ -725,7 +727,7 @@ export default function App() {
     const currentQ = quizState.questions[quizState.currentIndex];
     const clickedOption = currentQ?.options?.[optionIndex];
     if (!clickedOption) return;
-    submitQuizAnswer(clickedOption, { persistQuizId: currentLecture });
+    submitQuizAnswer(clickedOption, { persistQuizId: selectedQuiz?.id });
   };
 
   const saveProgress = async (quizId, score, answers) => {
