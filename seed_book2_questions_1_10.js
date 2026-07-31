@@ -753,7 +753,7 @@ const questionsData = {
     },
     {
       en: "In Exercise 2, how do you correctly vocalize (put harakat on) 'Al-walad' and 'Al-kitab' in: 'Qata'a al-walad al-kitab'?",
-      ur: "مشق 2 کے مطابق، 'قَطَعَ الْوَلَدُ الْكِتَابَ' میں فاعل اور مفعول کے اعراب کیا ہوں گے؟",
+      ur: "مشق 2 کے مطابق، 'قطع الولد الكتاب' میں فاعل اور مفعول کے اعراب کیا ہوں گے؟",
       options: [
         { en: "Al-walada al-kitabu", ur: "الْوَلَدَ الْكِتَابُ" },
         { en: "Al-waladu al-kitaba", ur: "الْوَلَدُ الْكِتَابَ" },

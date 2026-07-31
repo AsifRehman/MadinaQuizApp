@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { neon } from '@neondatabase/serverless';
 import { getGroqResponse } from './groq';
 import { 
@@ -95,6 +95,7 @@ export default function App() {
   const [selectedQuizTitle, setSelectedQuizTitle] = useState(null);
   const [quizResults, setQuizResults] = useState([]);
   const [isGeneratingAi, setIsGeneratingAi] = useState(false);
+  const answerLockRef = useRef(false);
 
   const formatRelativeTime = (isoString) => {
     if (!isoString) return '';
@@ -296,7 +297,7 @@ export default function App() {
         qEn: q.question_en,
         qUr: q.question_ur,
         options: typeof q.options === 'string' ? JSON.parse(q.options) : q.options,
-        correct: q.correct_option_index
+        correct: Number(q.correct_option_index)
       }));
       setQuizData(mappedQuestions);
       return mappedQuestions;
@@ -312,6 +313,44 @@ export default function App() {
     } catch {
       return [];
     }
+  };
+
+  const createAnswerSnapshot = (option, question) => ({
+    questionId: question.id,
+    qEn: question.qEn,
+    qUr: question.qUr,
+    originalIdx: option.originalIdx,
+    en: option.en,
+    ur: option.ur
+  });
+
+  const getStoredAnswerForQuestion = (answers, question, fallbackIndex) => {
+    if (!answers) return null;
+    const normalized = normalizeAnswers(answers);
+    const matched = normalized.find(answer =>
+      answer && typeof answer === 'object' && (
+        (answer.questionId && answer.questionId === question.id) ||
+        (answer.qEn && answer.qEn === question.qEn) ||
+        (answer.qUr && answer.qUr === question.qUr)
+      )
+    );
+    return matched ?? normalized[fallbackIndex] ?? null;
+  };
+
+  const resolveStoredAnswerIndex = (answer, question) => {
+    if (answer === null || answer === undefined) return null;
+    if (typeof answer === 'number') return Number(answer);
+
+    if (typeof answer === 'object') {
+      // Prefer the stable original index over text — option wording can collide across choices.
+      if (typeof answer.originalIdx === 'number') return answer.originalIdx;
+      const textMatch = question.options.findIndex(opt =>
+        (answer.en && opt.en === answer.en) || (answer.ur && opt.ur === answer.ur)
+      );
+      if (textMatch >= 0) return textMatch;
+    }
+
+    return null;
   };
 
   const openResultDetails = async ({ quizId, studentName: detailStudentName, lectureNum, data }) => {
@@ -634,21 +673,59 @@ export default function App() {
     setQuizState({ active: true, questions, currentIndex: 0, score: 0, showResult: false, answers: [] });
   };
 
+  // Reset click lock whenever the active question changes (or quiz restarts).
+  useEffect(() => {
+    answerLockRef.current = false;
+  }, [quizState.currentIndex, quizState.active, quizState.showResult]);
+
+  const submitQuizAnswer = (option, { persistQuizId } = {}) => {
+    // Prevent double-taps / stale clicks from recording a different option.
+    if (answerLockRef.current) return;
+    answerLockRef.current = true;
+
+    let finished = null;
+    let accepted = false;
+
+    setQuizState(prev => {
+      if (!prev.active || prev.showResult) return prev;
+      // Already answered this question (answers length should equal current index).
+      if (prev.answers.length !== prev.currentIndex) return prev;
+
+      const currentQ = prev.questions[prev.currentIndex];
+      if (!currentQ) return prev;
+
+      accepted = true;
+      const isCorrect = Number(option.originalIdx) === Number(currentQ.correct);
+      const newScore = isCorrect ? prev.score + 1 : prev.score;
+      const newAnswers = [...prev.answers, createAnswerSnapshot(option, currentQ)];
+      const nextIndex = prev.currentIndex + 1;
+
+      if (nextIndex < prev.questions.length) {
+        return { ...prev, currentIndex: nextIndex, score: newScore, answers: newAnswers };
+      }
+
+      finished = {
+        score: (newScore / prev.questions.length) * 100,
+        answers: newAnswers
+      };
+      return { ...prev, score: newScore, showResult: true, answers: newAnswers };
+    });
+
+    if (!accepted) {
+      answerLockRef.current = false;
+      return;
+    }
+
+    if (finished && persistQuizId != null) {
+      saveProgress(persistQuizId, finished.score, finished.answers);
+    }
+  };
+
   const handleAnswer = (optionIndex) => {
     const currentQ = quizState.questions[quizState.currentIndex];
-    const clickedOption = currentQ.options[optionIndex];
-    const isCorrect = clickedOption.originalIdx === currentQ.correct;
-    const newScore = isCorrect ? quizState.score + 1 : quizState.score;
-    const nextIndex = quizState.currentIndex + 1;
-
-    if (nextIndex < quizState.questions.length) {
-      setQuizState({ ...quizState, currentIndex: nextIndex, score: newScore, answers: [...quizState.answers, clickedOption.originalIdx] });
-    } else {
-      const finalScore = (newScore / quizState.questions.length) * 100;
-      const finalAnswers = [...quizState.answers, clickedOption.originalIdx];
-      setQuizState({ ...quizState, score: newScore, showResult: true, answers: finalAnswers });
-      saveProgress(currentLecture, finalScore, finalAnswers);
-    }
+    const clickedOption = currentQ?.options?.[optionIndex];
+    if (!clickedOption) return;
+    submitQuizAnswer(clickedOption, { persistQuizId: currentLecture });
   };
 
   const saveProgress = async (quizId, score, answers) => {
@@ -1021,8 +1098,9 @@ export default function App() {
             </header>
             <div className="p-8 overflow-y-auto space-y-8 flex-1">
               {quizData.map((q, idx) => {
-                const studentAnswer = viewingDetails.data.answers ? viewingDetails.data.answers[idx] : null;
-                const isCorrect = studentAnswer === q.correct;
+                const storedAnswer = getStoredAnswerForQuestion(viewingDetails.data.answers, q, idx);
+                const studentAnswer = resolveStoredAnswerIndex(storedAnswer, q);
+                const isCorrect = studentAnswer !== null && Number(studentAnswer) === Number(q.correct);
                 return (
                   <div key={idx} className={`p-8 rounded-[2rem] border-2 ${isCorrect ? 'border-emerald-100 bg-emerald-50/20' : 'border-red-100 bg-red-50/20'}`}>
                     <div className="flex justify-between items-start gap-4 mb-6">
@@ -1035,8 +1113,8 @@ export default function App() {
                     <div className="grid grid-cols-1 gap-3">
                       {q.options.map((opt, optIdx) => {
                         let style = 'bg-white border-slate-100 text-slate-500'; let icon = null;
-                        if (optIdx === q.correct) { style = 'bg-emerald-600 border-emerald-600 text-white shadow-lg shadow-emerald-100'; icon = <CheckCircle2 size={18} />; }
-                        else if (optIdx === studentAnswer) { style = 'bg-red-500 border-red-500 text-white shadow-lg shadow-red-100'; icon = <XCircle size={18} />; }
+                        if (optIdx === Number(q.correct)) { style = 'bg-emerald-600 border-emerald-600 text-white shadow-lg shadow-emerald-100'; icon = <CheckCircle2 size={18} />; }
+                        else if (studentAnswer !== null && optIdx === Number(studentAnswer)) { style = 'bg-red-500 border-red-500 text-white shadow-lg shadow-red-100'; icon = <XCircle size={18} />; }
                         return (
                           <div key={optIdx} className={`p-4 rounded-xl border flex items-center justify-between font-bold ${style}`}>
                             <div className="flex items-center gap-4"><span>{opt.en}</span><span dir="rtl" className="font-urdu text-base opacity-70">{opt.ur}</span></div>{icon}
@@ -1155,24 +1233,12 @@ export default function App() {
               <h2 dir="rtl" className="text-3xl md:text-4xl font-bold text-emerald-700 font-urdu leading-relaxed">{q.qUr}</h2>
             </div>
             <div className="p-8 md:p-12 bg-slate-50/50 space-y-4">
-              {q.options.map((opt, i) => (
+              {q.options.map((opt) => (
                 <button 
-                  key={i} 
-                  onClick={() => {
-                    const isCorrect = opt.originalIdx === q.correct;
-                    const newScore = isCorrect ? quizState.score + 1 : quizState.score;
-                    const nextIndex = currentIndex + 1;
-                    const newAnswers = [...quizState.answers, opt.originalIdx];
-
-                    if (nextIndex < questions.length) {
-                      setQuizState({ ...quizState, currentIndex: nextIndex, score: newScore, answers: newAnswers });
-                    } else {
-                      const finalScore = (newScore / questions.length) * 100;
-                      setQuizState({ ...quizState, score: newScore, showResult: true, answers: newAnswers });
-                      saveProgress(selectedQuiz.id, finalScore, newAnswers);
-                    }
-                  }} 
-                  className="w-full p-6 bg-white border-2 border-slate-100 rounded-2xl text-left flex flex-col md:flex-row md:items-center justify-between group hover:border-emerald-500 hover:shadow-lg transition-all active:scale-[0.98]"
+                  key={opt.originalIdx ?? opt.en} 
+                  type="button"
+                  onClick={() => submitQuizAnswer(opt, { persistQuizId: selectedQuiz?.id })} 
+                  className="w-full p-6 bg-white border-2 border-slate-100 rounded-2xl text-left flex flex-col md:flex-row md:items-center justify-between group hover:border-emerald-500 hover:shadow-lg transition-colors"
                 >
                   <span className="text-lg font-bold text-slate-700 group-hover:text-emerald-700">{opt.en}</span>
                   <span dir="rtl" className="text-xl font-bold text-emerald-600 font-urdu mt-2 md:mt-0">{opt.ur}</span>
@@ -1613,8 +1679,9 @@ export default function App() {
             </header>
             <div className="p-8 overflow-y-auto space-y-8 flex-1">
               {quizData.map((q, idx) => {
-                const studentAnswer = viewingDetails.data.answers ? viewingDetails.data.answers[idx] : null;
-                const isCorrect = studentAnswer === q.correct;
+                const storedAnswer = getStoredAnswerForQuestion(viewingDetails.data.answers, q, idx);
+                const studentAnswer = resolveStoredAnswerIndex(storedAnswer, q);
+                const isCorrect = studentAnswer !== null && Number(studentAnswer) === Number(q.correct);
                 return (
                   <div key={idx} className={`p-8 rounded-[2rem] border-2 ${isCorrect ? 'border-emerald-100 bg-emerald-50/20' : 'border-red-100 bg-red-50/20'}`}>
                     <div className="flex justify-between items-start gap-4 mb-6">
@@ -1627,8 +1694,8 @@ export default function App() {
                     <div className="grid grid-cols-1 gap-3">
                       {q.options.map((opt, optIdx) => {
                         let style = 'bg-white border-slate-100 text-slate-500'; let icon = null;
-                        if (optIdx === q.correct) { style = 'bg-emerald-600 border-emerald-600 text-white shadow-lg shadow-emerald-100'; icon = <CheckCircle2 size={18} />; }
-                        else if (optIdx === studentAnswer) { style = 'bg-red-500 border-red-500 text-white shadow-lg shadow-red-100'; icon = <XCircle size={18} />; }
+                        if (optIdx === Number(q.correct)) { style = 'bg-emerald-600 border-emerald-600 text-white shadow-lg shadow-emerald-100'; icon = <CheckCircle2 size={18} />; }
+                        else if (studentAnswer !== null && optIdx === Number(studentAnswer)) { style = 'bg-red-500 border-red-500 text-white shadow-lg shadow-red-100'; icon = <XCircle size={18} />; }
                         return (
                           <div key={optIdx} className={`p-4 rounded-xl border flex items-center justify-between font-bold ${style}`}>
                             <div className="flex items-center gap-4"><span>{opt.en}</span><span dir="rtl" className="font-urdu text-base opacity-70">{opt.ur}</span></div>{icon}
