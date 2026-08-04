@@ -97,6 +97,189 @@ export default function App() {
   const [isGeneratingAi, setIsGeneratingAi] = useState(false);
   const answerLockRef = useRef(false);
 
+  // --- EDIT QUIZ SYSTEM STATE ---
+  const [isEditingQuestion, setIsEditingQuestion] = useState(false);
+  const [passwordPromptOpen, setPasswordPromptOpen] = useState(false);
+  const [promptPasswordValue, setPromptPasswordValue] = useState('');
+  const [promptError, setPromptError] = useState('');
+  const [editQuestionEn, setEditQuestionEn] = useState('');
+  const [editQuestionUr, setEditQuestionUr] = useState('');
+  const [editOptions, setEditOptions] = useState([
+    { en: '', ur: '' },
+    { en: '', ur: '' },
+    { en: '', ur: '' },
+    { en: '', ur: '' }
+  ]);
+  const [editCorrectIndex, setEditCorrectIndex] = useState(0);
+  const [isSavingQuestion, setIsSavingQuestion] = useState(false);
+  const [editJsonValue, setEditJsonValue] = useState('');
+  const [jsonError, setJsonError] = useState('');
+  const isJsonFocused = useRef(false);
+
+  const handleEditQuizClick = () => {
+    setPromptPasswordValue('');
+    setPromptError('');
+    setPasswordPromptOpen(true);
+  };
+
+  const handlePasswordSubmit = async (e) => {
+    e.preventDefault();
+    setPromptError('');
+    try {
+      const usersList = await sql`
+        SELECT password FROM users 
+        WHERE school_id = ${SCHOOL_ID} AND (LOWER(username) = 'instructor' OR role = 'instructor')
+      `;
+      const isMatch = usersList.some(u => u.password === promptPasswordValue);
+      if (isMatch) {
+        setPasswordPromptOpen(false);
+        startEditingCurrentQuestion();
+      } else {
+        setPromptError('Incorrect password');
+      }
+    } catch (err) {
+      console.error("Verification error:", err);
+      setPromptError('Error checking password');
+    }
+  };
+
+  const startEditingCurrentQuestion = async () => {
+    const q = quizState.questions[quizState.currentIndex];
+    if (!q) return;
+    try {
+      const [dbQ] = await sql`SELECT * FROM questions WHERE id = ${q.id}`;
+      if (dbQ) {
+        setEditQuestionEn(dbQ.question_en);
+        setEditQuestionUr(dbQ.question_ur);
+        
+        const opts = typeof dbQ.options === 'string' ? JSON.parse(dbQ.options) : dbQ.options;
+        const paddedOpts = Array.from({ length: 4 }).map((_, idx) => {
+          return opts[idx] || { en: '', ur: '' };
+        });
+        setEditOptions(paddedOpts);
+        setEditCorrectIndex(Number(dbQ.correct_option_index));
+        
+        const initialJson = JSON.stringify({
+          question_en: dbQ.question_en,
+          question_ur: dbQ.question_ur,
+          options: paddedOpts,
+          correct_option_index: Number(dbQ.correct_option_index)
+        }, null, 2);
+        setEditJsonValue(initialJson);
+        setJsonError('');
+        setIsEditingQuestion(true);
+      }
+    } catch (err) {
+      console.error("Load question error:", err);
+      alert("Failed to load question details for editing.");
+    }
+  };
+
+  // Sync form inputs -> JSON value (only if user is not currently focusing/typing in the JSON textarea)
+  useEffect(() => {
+    if (isEditingQuestion && !isJsonFocused.current) {
+      try {
+        const obj = {
+          question_en: editQuestionEn,
+          question_ur: editQuestionUr,
+          options: editOptions,
+          correct_option_index: Number(editCorrectIndex)
+        };
+        setEditJsonValue(JSON.stringify(obj, null, 2));
+        setJsonError('');
+      } catch (e) {}
+    }
+  }, [editQuestionEn, editQuestionUr, editOptions, editCorrectIndex, isEditingQuestion]);
+
+  const handleJsonChange = (val) => {
+    setEditJsonValue(val);
+    try {
+      const parsed = JSON.parse(val);
+      if (parsed && typeof parsed === 'object') {
+        if (typeof parsed.question_en === 'string') setEditQuestionEn(parsed.question_en);
+        if (typeof parsed.question_ur === 'string') setEditQuestionUr(parsed.question_ur);
+        if (Array.isArray(parsed.options)) {
+          const padded = Array.from({ length: 4 }).map((_, idx) => parsed.options[idx] || { en: '', ur: '' });
+          setEditOptions(padded);
+        }
+        if (typeof parsed.correct_option_index === 'number') {
+          setEditCorrectIndex(parsed.correct_option_index);
+        }
+        setJsonError('');
+      } else {
+        setJsonError('Must be a JSON object');
+      }
+    } catch (e) {
+      setJsonError('Invalid JSON format: ' + e.message);
+    }
+  };
+
+  const handleSaveQuestion = async () => {
+    const q = quizState.questions[quizState.currentIndex];
+    if (!q) return;
+    setIsSavingQuestion(true);
+    try {
+      let finalEn = editQuestionEn;
+      let finalUr = editQuestionUr;
+      let finalOpts = editOptions;
+      let finalCorrect = editCorrectIndex;
+
+      // Try to parse the current JSON text if it was edited
+      if (editJsonValue.trim()) {
+        try {
+          const parsed = JSON.parse(editJsonValue);
+          if (parsed && typeof parsed === 'object') {
+            if (parsed.question_en) finalEn = parsed.question_en;
+            if (parsed.question_ur) finalUr = parsed.question_ur;
+            if (Array.isArray(parsed.options)) {
+              finalOpts = Array.from({ length: 4 }).map((_, idx) => parsed.options[idx] || { en: '', ur: '' });
+            }
+            if (typeof parsed.correct_option_index === 'number') {
+              finalCorrect = parsed.correct_option_index;
+            }
+          }
+        } catch (e) {
+          alert("Warning: JSON has errors. Saving with current form values instead.");
+        }
+      }
+
+      await sql`
+        UPDATE questions 
+        SET question_en = ${finalEn}, 
+            question_ur = ${finalUr}, 
+            options = ${JSON.stringify(finalOpts)}, 
+            correct_option_index = ${finalCorrect} 
+        WHERE id = ${q.id}
+      `;
+
+      setQuizState(prev => {
+        const updatedQuestions = prev.questions.map(item => {
+          if (item.id === q.id) {
+            const optionsWithIdx = finalOpts.map((opt, idx) => ({ ...opt, originalIdx: idx }));
+            return {
+              ...item,
+              qEn: finalEn,
+              qUr: finalUr,
+              options: optionsWithIdx,
+              correct: Number(finalCorrect)
+            };
+          }
+          return item;
+        });
+        return { ...prev, questions: updatedQuestions };
+      });
+
+      setIsEditingQuestion(false);
+    } catch (err) {
+      console.error("Save question error:", err);
+      alert("Failed to save changes. Please try again.");
+    } finally {
+      setIsSavingQuestion(false);
+    }
+  };
+
+
+
   const formatRelativeTime = (isoString) => {
     if (!isoString) return '';
     const date = new Date(isoString);
@@ -1207,6 +1390,151 @@ export default function App() {
       </div>
     );
 
+    if (isEditingQuestion) {
+      return (
+        <div className="min-h-screen bg-slate-50 flex flex-col">
+          <header className="bg-white h-16 border-b flex items-center justify-between px-6 sticky top-0 z-10">
+            <div className="flex items-center gap-4">
+              <span className="font-bold text-slate-800">Edit Question Mode</span>
+            </div>
+          </header>
+
+          <main className="flex-1 max-w-6xl mx-auto w-full px-6 py-12">
+            <div className="bg-white rounded-[2.5rem] shadow-sm border border-slate-100 p-8 md:p-12">
+              <h2 className="text-2xl font-black text-slate-800 mb-8">Edit Question</h2>
+              
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+                {/* LEFT SIDE: FORM */}
+                <div className="space-y-6">
+                  <div className="space-y-4">
+                    <div>
+                      <label className="text-[10px] font-black uppercase text-slate-400 ml-2">Question (English)</label>
+                      <input 
+                        type="text" 
+                        value={editQuestionEn} 
+                        onChange={(e) => setEditQuestionEn(e.target.value)} 
+                        className="w-full p-4 rounded-xl border bg-slate-50 outline-none focus:ring-2 focus:ring-emerald-500 font-bold" 
+                      />
+                    </div>
+                    
+                    <div>
+                      <label className="text-[10px] font-black uppercase text-slate-400 ml-2">Question (Urdu)</label>
+                      <input 
+                        type="text" 
+                        dir="rtl"
+                        value={editQuestionUr} 
+                        onChange={(e) => setEditQuestionUr(e.target.value)} 
+                        className="w-full p-4 rounded-xl border bg-slate-50 outline-none focus:ring-2 focus:ring-emerald-500 font-urdu font-bold text-xl text-emerald-850" 
+                      />
+                    </div>
+
+                    <div className="space-y-4 pt-4 border-t">
+                      <div className="flex items-center justify-between">
+                        <span className="text-[11px] font-black uppercase text-slate-400">Options</span>
+                        <span className="text-[10px] font-black uppercase text-slate-400 mr-2">Select Correct Option</span>
+                      </div>
+
+                      {editOptions.map((opt, idx) => (
+                        <div key={idx} className="flex gap-4 items-center bg-slate-50 p-4 rounded-2xl border border-slate-100">
+                          <label className="flex items-center justify-center w-8 h-8 rounded-full bg-slate-200 text-slate-700 font-black text-sm shrink-0">
+                            {idx + 1}
+                          </label>
+                          <div className="flex-1 grid grid-cols-1 md:grid-cols-2 gap-3">
+                            <input 
+                              type="text" 
+                              placeholder="Option (English)" 
+                              value={opt.en} 
+                              onChange={(e) => {
+                                const newOpts = [...editOptions];
+                                newOpts[idx] = { ...newOpts[idx], en: e.target.value };
+                                setEditOptions(newOpts);
+                              }} 
+                              className="w-full p-3 rounded-xl border bg-white outline-none focus:ring-2 focus:ring-emerald-500 font-bold text-sm" 
+                            />
+                            <input 
+                              type="text" 
+                              dir="rtl"
+                              placeholder="Option (Urdu)" 
+                              value={opt.ur} 
+                              onChange={(e) => {
+                                const newOpts = [...editOptions];
+                                newOpts[idx] = { ...newOpts[idx], ur: e.target.value };
+                                setEditOptions(newOpts);
+                              }} 
+                              className="w-full p-3 rounded-xl border bg-white outline-none focus:ring-2 focus:ring-emerald-500 font-urdu font-bold text-base text-emerald-800" 
+                            />
+                          </div>
+                          <input 
+                            type="radio" 
+                            name="correct-opt" 
+                            checked={Number(editCorrectIndex) === idx}
+                            onChange={() => setEditCorrectIndex(idx)}
+                            className="w-5 h-5 accent-emerald-600 cursor-pointer shrink-0" 
+                          />
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+
+                {/* RIGHT SIDE: JSON TEXTAREA */}
+                <div className="flex flex-col h-full space-y-2">
+                  <div className="flex items-center justify-between ml-2">
+                    <label className="text-[10px] font-black uppercase text-slate-400">JSON Editor (Copy / Paste / Edit)</label>
+                    {jsonError ? (
+                      <span className="text-red-500 text-xs font-bold">{jsonError}</span>
+                    ) : (
+                      <span className="text-emerald-600 text-xs font-bold">JSON Format Valid</span>
+                    )}
+                  </div>
+                  <textarea
+                    className="flex-1 w-full p-4 rounded-xl border bg-slate-900 text-emerald-400 font-mono text-xs outline-none focus:ring-2 focus:ring-emerald-500 min-h-[400px] h-full resize-none leading-relaxed"
+                    value={editJsonValue}
+                    onFocus={() => { isJsonFocused.current = true; }}
+                    onBlur={() => { isJsonFocused.current = false; }}
+                    onChange={(e) => handleJsonChange(e.target.value)}
+                  />
+                  <div className="p-3 bg-slate-50 rounded-xl border border-slate-100 text-[11px] text-slate-500 leading-normal">
+                    <strong>Tip:</strong> You can directly paste or edit the JSON object on the right. Any change is instantly reflected in the form on the left.
+                  </div>
+                </div>
+              </div>
+
+              {/* BUTTONS */}
+              <div className="flex justify-end gap-3 pt-6 border-t mt-8">
+                <button 
+                  type="button" 
+                  disabled={isSavingQuestion}
+                  onClick={() => setIsEditingQuestion(false)} 
+                  className="px-6 py-3 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-xl font-bold text-sm transition-colors"
+                >
+                  Cancel
+                </button>
+                <button 
+                  type="button" 
+                  disabled={isSavingQuestion}
+                  onClick={handleSaveQuestion} 
+                  className="px-8 py-3 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl font-black text-sm transition-colors flex items-center gap-2"
+                >
+                  {isSavingQuestion ? (
+                    <>
+                      <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
+                      <span>Saving...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Save size={16} />
+                      <span>Save Changes</span>
+                    </>
+                  )}
+                </button>
+              </div>
+            </div>
+          </main>
+        </div>
+      );
+    }
+
     const q = questions[currentIndex];
     const progress = ((currentIndex + 1) / questions.length) * 100;
 
@@ -1223,8 +1551,17 @@ export default function App() {
               <p className="text-sm font-bold text-slate-700">Question {currentIndex + 1} of {questions.length}</p>
             </div>
           </div>
-          <div className="w-48 h-2 bg-slate-100 rounded-full overflow-hidden hidden sm:block">
-            <div className="h-full bg-emerald-500 transition-all duration-500" style={{ width: `${progress}%` }}></div>
+          <div className="flex items-center gap-4">
+            <button 
+              onClick={handleEditQuizClick} 
+              className="flex items-center gap-2 px-3.5 py-2 bg-amber-50 hover:bg-amber-100 text-amber-700 rounded-xl border border-amber-200 transition-colors font-bold text-xs animate-pulse"
+            >
+              <Edit2 size={14} />
+              <span>Edit Question</span>
+            </button>
+            <div className="w-48 h-2 bg-slate-100 rounded-full overflow-hidden hidden sm:block">
+              <div className="h-full bg-emerald-500 transition-all duration-500" style={{ width: `${progress}%` }}></div>
+            </div>
           </div>
         </header>
 
@@ -1249,6 +1586,45 @@ export default function App() {
             </div>
           </div>
         </main>
+
+        {passwordPromptOpen && (
+          <div className="fixed inset-0 bg-slate-900/80 backdrop-blur-md z-50 flex items-center justify-center p-4">
+            <div className="bg-white w-full max-w-md rounded-3xl shadow-2xl p-8 border border-slate-100">
+              <h3 className="text-xl font-black text-slate-800 mb-2">Instructor Verification</h3>
+              <p className="text-slate-500 text-sm mb-6">Please enter the instructor password to edit this question.</p>
+              
+              <form onSubmit={handlePasswordSubmit}>
+                <input 
+                  type="password" 
+                  placeholder="Password" 
+                  required 
+                  autoFocus
+                  className="w-full p-4 rounded-xl border bg-slate-50 outline-none focus:ring-2 focus:ring-emerald-500 font-bold mb-4"
+                  value={promptPasswordValue} 
+                  onChange={(e) => setPromptPasswordValue(e.target.value)} 
+                />
+                {promptError && (
+                  <p className="text-red-500 text-sm font-bold mb-4">{promptError}</p>
+                )}
+                <div className="flex justify-end gap-3">
+                  <button 
+                    type="button" 
+                    onClick={() => setPasswordPromptOpen(false)} 
+                    className="px-4 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-xl font-bold text-sm transition-colors"
+                  >
+                    Cancel
+                  </button>
+                  <button 
+                    type="submit" 
+                    className="px-5 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl font-black text-sm transition-colors"
+                  >
+                    Verify
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>
+        )}
       </div>
     );
   };

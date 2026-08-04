@@ -278,7 +278,7 @@ const questionsData = {
       options: [
         { en: "Yaqifu ka-mudarrisin", ur: "يَقِفُ كَمُدَرِّسٍ" },
         { en: "Yaqifu ka-mudarrisu", ur: "يَقِفُ كَمُدَرِّسُ" },
-        { en: "Yaqifu ka-mudarrisen", ur: "يَقِفُ كَمُدَرِّسٍ" },
+        { en: "Yaqifu ka-mudarrisan", ur: "يَقِفُ كَمُدَرِّسًا" },
         { en: "Yajlisu ka-mudarrisin" }
       ],
       correct: 0
@@ -501,7 +501,7 @@ const questionsData = {
         { en: "Lan tal'aba al-banaatu", ur: "لَنْ تَلْعَبَ الْبَنَاتُ" },
         { en: "Lan tal'abna al-banaatu", ur: "لَنْ تَلْعَبْنَ الْبَنَاتُ" },
         { en: "Al-banaatu lan yal'abna (الْبَنَاتُ لَنْ يَلْعَبْنَ)", ur: "الْبَنَاتُ لَنْ يَلْعَبْنَ" },
-        { en: "Both 'Lan tal'aba al-banaatu' and 'Al-banaatu lan yal'abna' are correct", ur: "پہلا اور تیسرا دونوں درست ہیں" }
+        { en: "Both 'Lan tal'aba al-banaatu' and 'Al-banaatu lan yal'abna' are correct", ur: "لَنْ تَلْعَبَ الْبَنَاتُ اور الْبَنَاتُ لَنْ يَلْعَبْنَ دونوں درست ہیں" }
       ],
       correct: 3
     }

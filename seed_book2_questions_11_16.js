@@ -446,7 +446,7 @@ const questionsData = {
         { en: "Yadkhulu al-tullaabu al-masjida", ur: "يَدْخُلُ الطُّلَّابُ الْمَسْجِدَ" },
         { en: "Yadkhuloona al-tullaabu al-masjida", ur: "يَدْخُلُونَ الطُّلَّابُ الْمَسْجِدَ" },
         { en: "Al-tullaabu yadkhuloona al-masjida (الطُّلَّابُ يَدْخُلُونَ الْمَسْجِدَ)", ur: "الطُّلَّابُ يَدْخُلُونَ الْمَسْجِدَ" },
-        { en: "Both 'Yadkhulu al-tullaabu...' and 'Al-tullaabu yadkhuloona...' are correct", ur: "پہلا اور تیسرا دونوں درست ہیں" }
+        { en: "Both 'Yadkhulu al-tullaabu al-masjida (يَدْخُلُ الطُّلَّابُ الْمَسْجِدَ)' and 'Al-tullaabu yadkhuloona al-masjida (الطُّلَّابُ يَدْخُلُونَ الْمَسْجِدَ)' are correct", ur: "يَدْخُلُ الطُّلَّابُ الْمَسْجِدَ اور الطُّلَّابُ يَدْخُلُونَ الْمَسْجِدَ دونوں درست ہیں" }
       ],
       correct: 3
     },
@@ -912,7 +912,7 @@ const questionsData = {
       ur: "حالتِ نصب میں 'عَمْرٌو' کی شکل کیا ہو جاتی ہے؟",
       options: [
         { en: "Amran (عَمْرًا - dropping the Waw and adding Alif)", ur: "عَمْرًا (واؤ گرا کر الف کے ساتھ)" },
-        { en: "Amron (عَمْرًا)", ur: "عَمْرًا" },
+        { en: "Amrun (عَمْرٌو - keeping the Waw)", ur: "عَمْرٌو (واؤ برقرار)" },
         { en: "Amru (عَمْرُ)", ur: "عَمْرُ" },
         { en: "Amrin (عَمْرٍو)" }
       ],
