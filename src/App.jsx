@@ -24,6 +24,7 @@ import {
   Settings,
   Shield,
   ArrowLeft,
+  ArrowRight,
   ChevronDown
 } from 'lucide-react';
 
@@ -73,12 +74,14 @@ export default function App() {
   const [quizData, setQuizData] = useState([]);
   const [isLoadingData, setIsLoadingData] = useState(true);
   const [quizState, setQuizState] = useState({
-    active: false, questions: [], currentIndex: 0, score: 0, showResult: false, answers: []
+    active: false, questions: [], currentIndex: 0, score: 0, showResult: false, answers: [], startedAt: null
   });
-  const [view, setView] = useState(getInitialView(savedSession)); // login, student_courses, student_lectures, student_quizzes, quiz_taking, instructor_courses, instructor_course_detail, instructor_lecture_detail, admin_dashboard, admin_manage_courses, admin_assign_courses
+  const [view, setView] = useState(getInitialView(savedSession)); // login, student_courses, student_sections, student_lectures, student_quizzes, quiz_taking, instructor_courses, instructor_course_detail, instructor_lecture_detail, admin_dashboard, admin_manage_courses, admin_assign_courses
   const [userRole, setUserRole] = useState(savedSession?.userRole || null);
   const [courses, setCourses] = useState([]);
+  const [sections, setSections] = useState([]);
   const [selectedCourse, setSelectedCourse] = useState(savedSession?.selectedCourse || null);
+  const [selectedSection, setSelectedSection] = useState(savedSession?.selectedSection || null);
   const [selectedLecture, setSelectedLecture] = useState(savedSession?.selectedLecture || null);
   const [quizzes, setQuizzes] = useState([]);
   const [courseQuizzes, setCourseQuizzes] = useState([]);
@@ -95,7 +98,6 @@ export default function App() {
   const [selectedQuizTitle, setSelectedQuizTitle] = useState(null);
   const [quizResults, setQuizResults] = useState([]);
   const [isGeneratingAi, setIsGeneratingAi] = useState(false);
-  const answerLockRef = useRef(false);
 
   // --- EDIT QUIZ SYSTEM STATE ---
   const [isEditingQuestion, setIsEditingQuestion] = useState(false);
@@ -336,17 +338,23 @@ export default function App() {
       userRole,
       view,
       selectedCourse,
+      selectedSection,
       selectedLecture
     }));
     const nextHash = `#/${view}`;
     if (window.location.hash !== nextHash) {
       window.history.replaceState(null, '', nextHash);
     }
-  }, [isLoggedIn, studentId, studentName, userRole, view, selectedCourse, selectedLecture]);
+  }, [isLoggedIn, studentId, studentName, userRole, view, selectedCourse, selectedSection, selectedLecture]);
 
   const fetchCourses = async () => {
     try {
-      const data = await sql`SELECT * FROM courses WHERE school_id = ${SCHOOL_ID} ORDER BY name ASC`;
+      const data = await sql`
+        SELECT c.* FROM courses c
+        WHERE c.school_id = ${SCHOOL_ID}
+          AND (EXISTS (SELECT 1 FROM sections s WHERE s.course_id = c.id))
+        ORDER BY c.name ASC
+      `;
       setCourses(data);
     } catch (err) { 
       console.error("Fetch courses error:", err); 
@@ -355,12 +363,38 @@ export default function App() {
     }
   };
 
+  const fetchSections = async (courseId, includeHidden = false) => {
+    if (!courseId) return;
+    try {
+      const data = includeHidden
+        ? await sql`SELECT * FROM sections WHERE course_id = ${courseId} ORDER BY order_index ASC`
+        : await sql`SELECT * FROM sections WHERE course_id = ${courseId} AND is_hidden = false ORDER BY order_index ASC`;
+      setSections(data);
+    } catch (err) { console.error("Fetch sections error:", err); }
+  };
+
   const fetchLectures = async (courseId) => {
     if (!courseId) return;
     try {
       const data = await sql`SELECT * FROM lectures WHERE course_id = ${courseId} ORDER BY order_index ASC`;
       setLectures(data);
     } catch (err) { console.error("Fetch lectures error:", err); }
+  };
+
+  const fetchSectionLectures = async (sectionId) => {
+    if (!sectionId) return;
+    try {
+      const data = await sql`SELECT * FROM lectures WHERE section_id = ${sectionId} ORDER BY order_index ASC`;
+      setLectures(data);
+    } catch (err) { console.error("Fetch section lectures error:", err); }
+  };
+
+  const fetchSectionQuizzes = async (sectionId) => {
+    if (!sectionId) return;
+    try {
+      const data = await sql`SELECT * FROM quizzes WHERE section_id = ${sectionId} ORDER BY version ASC`;
+      setQuizzes(data);
+    } catch (err) { console.error("Fetch section quizzes error:", err); }
   };
 
   const fetchQuizzes = async (lectureId) => {
@@ -375,11 +409,13 @@ export default function App() {
     if (!courseId) return;
     try {
       const data = await sql`
-        SELECT q.*, l.title as lecture_title, l.order_index as lecture_order
+        SELECT q.*, l.title as lecture_title, l.order_index as lecture_order, s.title as section_title, s.kind as section_kind
         FROM quizzes q
-        JOIN lectures l ON q.lecture_id = l.id
-        WHERE l.course_id = ${courseId}
-        ORDER BY l.order_index ASC, q.version ASC
+        LEFT JOIN lectures l ON q.lecture_id = l.id
+        LEFT JOIN sections s ON q.section_id = s.id
+        LEFT JOIN sections s2 ON l.section_id = s2.id
+        WHERE s.course_id = ${courseId} OR s2.course_id = ${courseId}
+        ORDER BY COALESCE(s2.order_index, s.order_index) ASC, COALESCE(l.order_index, 0) ASC, q.version ASC
       `;
       setCourseQuizzes(data);
     } catch (err) { console.error("Fetch course quizzes error:", err); }
@@ -446,8 +482,8 @@ export default function App() {
       // 4. Create new quiz version
       const nextVersion = (parseInt(baseQuiz.version) || 1) + 1;
       const [newQuiz] = await sql`
-        INSERT INTO quizzes (lecture_id, title, quiz_type, version) 
-        VALUES (${baseQuiz.lecture_id}, ${baseQuiz.title}, ${baseQuiz.quiz_type}, ${nextVersion})
+        INSERT INTO quizzes (lecture_id, section_id, title, quiz_type, version) 
+        VALUES (${baseQuiz.lecture_id}, ${baseQuiz.section_id ?? null}, ${baseQuiz.title}, ${baseQuiz.quiz_type}, ${nextVersion})
         RETURNING *
       `;
 
@@ -536,11 +572,12 @@ export default function App() {
     return null;
   };
 
-  const openResultDetails = async ({ quizId, studentName: detailStudentName, lectureNum, data }) => {
+  const openResultDetails = async ({ quizId, studentName: detailStudentName, lectureNum, sectionTitle, data }) => {
     await fetchQuizData(quizId);
     setViewingDetails({
       studentName: detailStudentName,
       lectureNum,
+      sectionTitle,
       data: {
         ...data,
         lastScore: data.lastScore ?? data.score,
@@ -555,17 +592,47 @@ export default function App() {
 
   useEffect(() => {
     if (!isLoggedIn || !selectedCourse?.id) return;
+    if (view === 'student_sections') {
+      fetchSections(selectedCourse.id);
+    }
     if (view === 'student_lectures') {
-      fetchLectures(selectedCourse.id);
+      if (selectedSection?.id) {
+        fetchSectionLectures(selectedSection.id);
+      } else {
+        fetchLectures(selectedCourse.id);
+      }
       fetchCourseQuizzes(selectedCourse.id);
+    }
+    if (view === 'student_quizzes' && selectedSection?.kind === 'exam') {
+      fetchSectionQuizzes(selectedSection.id);
     }
     if (view === 'student_quizzes' && selectedLecture?.id) {
       fetchQuizzes(selectedLecture.id);
     }
     if (view === 'quiz_taking' && !selectedQuiz?.id) {
-      navigateTo(selectedLecture?.id ? 'student_quizzes' : 'student_lectures', { replace: true });
+      navigateTo(selectedLecture?.id ? 'student_quizzes' : selectedSection?.id ? 'student_quizzes' : 'student_lectures', { replace: true });
     }
-  }, [isLoggedIn, view, selectedCourse?.id, selectedLecture?.id, selectedQuiz?.id]);
+  }, [isLoggedIn, view, selectedCourse?.id, selectedSection?.id, selectedLecture?.id, selectedQuiz?.id]);
+
+  // Global Material ripple on all buttons.
+  useEffect(() => {
+    const createRipple = (event) => {
+      const btn = event.target.closest('button');
+      if (!btn) return;
+      btn.classList.add('ripple-container');
+      const rect = btn.getBoundingClientRect();
+      const size = Math.max(rect.width, rect.height);
+      const ripple = document.createElement('span');
+      ripple.className = 'ripple';
+      ripple.style.width = ripple.style.height = `${size}px`;
+      ripple.style.left = `${event.clientX - rect.left - size / 2}px`;
+      ripple.style.top = `${event.clientY - rect.top - size / 2}px`;
+      btn.appendChild(ripple);
+      ripple.addEventListener('animationend', () => ripple.remove());
+    };
+    document.addEventListener('pointerdown', createRipple);
+    return () => document.removeEventListener('pointerdown', createRipple);
+  }, []);
 
   const fetchAssignedCourses = async (uid) => {
     try {
@@ -605,33 +672,36 @@ export default function App() {
     } catch (err) { console.error("Assign course error:", err); }
   };
 
-  const handleCreateLecture = async (courseId, title, orderIndex) => {
+  const handleCreateLecture = async (sectionId, title, orderIndex) => {
     try {
+      const [sec] = await sql`SELECT course_id FROM sections WHERE id = ${sectionId}`;
       await sql`
-        INSERT INTO lectures (course_id, title, order_index) 
-        VALUES (${courseId}, ${title}, ${orderIndex})
+        INSERT INTO lectures (course_id, section_id, title, order_index) 
+        VALUES (${sec?.course_id}, ${sectionId}, ${title}, ${orderIndex})
       `;
-      fetchLectures(courseId);
+      fetchSectionLectures(sectionId);
     } catch (err) { console.error("Create lecture error:", err); }
   };
 
-  const handleCreateQuiz = async (lectureId, title, type, version) => {
+  const handleCreateQuiz = async (lectureId, title, type, version, sectionId = null) => {
     try {
       await sql`
-        INSERT INTO quizzes (lecture_id, title, quiz_type, version) 
-        VALUES (${lectureId}, ${title}, ${type}, ${version})
+        INSERT INTO quizzes (lecture_id, section_id, title, quiz_type, version) 
+        VALUES (${lectureId}, ${sectionId}, ${title}, ${type}, ${version})
       `;
-      fetchQuizzes(lectureId);
+      if (sectionId) fetchSectionQuizzes(sectionId);
+      else fetchQuizzes(lectureId);
     } catch (err) { console.error("Create quiz error:", err); }
   };
 
   const fetchStudentData = async (uid) => {
     try {
       const results = await sql`
-        SELECT r.*, l.order_index as lecture_num, qz.title as quiz_title, qz.version as quiz_version
+        SELECT r.*, l.order_index as lecture_num, qz.title as quiz_title, qz.version as quiz_version, s.title as section_title
         FROM results r
         JOIN quizzes qz ON r.quiz_id = qz.id
-        JOIN lectures l ON qz.lecture_id = l.id
+        LEFT JOIN lectures l ON qz.lecture_id = l.id
+        LEFT JOIN sections s ON qz.section_id = s.id
         WHERE r.user_id = ${uid}
         ORDER BY r.completed_at DESC
       `;
@@ -642,6 +712,7 @@ export default function App() {
           id: r.id,
           score: parseFloat(r.score),
           completedAt: r.completed_at,
+          startedAt: r.started_at,
           answers: typeof r.answers === 'string' ? JSON.parse(r.answers) : r.answers
         };
         if (!progress[key]) {
@@ -682,11 +753,12 @@ export default function App() {
       }
 
       const results = await sql`
-        SELECT r.*, u.username, l.order_index as lecture_num, qz.id as quiz_id, qz.title as quiz_title
+        SELECT r.*, u.username, l.order_index as lecture_num, qz.id as quiz_id, qz.title as quiz_title, s.title as section_title
         FROM results r
         JOIN users u ON r.user_id = u.id
         JOIN quizzes qz ON r.quiz_id = qz.id
-        JOIN lectures l ON qz.lecture_id = l.id
+        LEFT JOIN lectures l ON qz.lecture_id = l.id
+        LEFT JOIN sections s ON qz.section_id = s.id
         WHERE u.school_id = ${SCHOOL_ID}
         ORDER BY r.completed_at ASC
       `;
@@ -853,82 +925,115 @@ export default function App() {
       };
     });
     setCurrentLecture(lectureNum);
-    setQuizState({ active: true, questions, currentIndex: 0, score: 0, showResult: false, answers: [] });
+    setQuizState({ active: true, questions, currentIndex: 0, score: 0, showResult: false, answers: new Array(questions.length).fill(null), startedAt: new Date().toISOString() });
   };
 
-  // Reset click lock whenever the active question changes (or quiz restarts).
-  useEffect(() => {
-    answerLockRef.current = false;
-  }, [quizState.currentIndex, quizState.active, quizState.showResult]);
-
-  const submitQuizAnswer = (option, { persistQuizId } = {}) => {
-    // Prevent double-taps / stale clicks from recording a different option.
-    if (answerLockRef.current) return;
-    answerLockRef.current = true;
-
-    if (!quizState.active || quizState.showResult) {
-      answerLockRef.current = false;
-      return;
-    }
-    // Already answered this question (answers length should equal current index).
-    if (quizState.answers.length !== quizState.currentIndex) {
-      answerLockRef.current = false;
-      return;
-    }
+  const selectAnswer = (option, { persistQuizId } = {}) => {
+    if (!quizState.active || quizState.showResult) return;
 
     const currentQ = quizState.questions[quizState.currentIndex];
-    if (!currentQ) {
-      answerLockRef.current = false;
-      return;
-    }
+    if (!currentQ) return;
 
-    const isCorrect = Number(option.originalIdx) === Number(currentQ.correct);
-    const newScore = isCorrect ? quizState.score + 1 : quizState.score;
-    const newAnswers = [...quizState.answers, createAnswerSnapshot(option, currentQ)];
-    const nextIndex = quizState.currentIndex + 1;
-    const isFinished = nextIndex >= quizState.questions.length;
+    // Record the selection for this question index (stable, navigable).
+    const snapshot = createAnswerSnapshot(option, currentQ);
+    const isLast = quizState.currentIndex >= quizState.questions.length - 1;
 
     setQuizState(prev => {
-      // Re-verify inside state updater to be safe
       if (!prev.active || prev.showResult) return prev;
-      if (prev.answers.length !== prev.currentIndex) return prev;
-
-      if (isFinished) {
-        return { ...prev, score: newScore, showResult: true, answers: newAnswers };
-      } else {
-        return { ...prev, currentIndex: nextIndex, score: newScore, answers: newAnswers };
-      }
+      const answers = [...prev.answers];
+      answers[prev.currentIndex] = snapshot;
+      // Auto-advance to the next question after selecting an answer.
+      if (isLast) return { ...prev, answers };
+      return { ...prev, answers, currentIndex: prev.currentIndex + 1 };
     });
-
-    if (isFinished && persistQuizId != null) {
-      const finalScore = (newScore / quizState.questions.length) * 100;
-      saveProgress(persistQuizId, finalScore, newAnswers);
-    }
   };
 
   const handleAnswer = (optionIndex) => {
     const currentQ = quizState.questions[quizState.currentIndex];
     const clickedOption = currentQ?.options?.[optionIndex];
     if (!clickedOption) return;
-    submitQuizAnswer(clickedOption, { persistQuizId: selectedQuiz?.id });
+    selectAnswer(clickedOption, { persistQuizId: selectedQuiz?.id });
   };
 
-  const saveProgress = async (quizId, score, answers) => {
+  // Is the current question already answered?
+  const currentAnswer = quizState.answers[quizState.currentIndex];
+
+  const goToPreviousQuestion = () => {
+    if (!quizState.active || quizState.showResult) return;
+    setQuizState(prev => {
+      if (!prev.active || prev.showResult || prev.currentIndex <= 0) return prev;
+      return { ...prev, currentIndex: prev.currentIndex - 1 };
+    });
+  };
+
+  const goToNextQuestion = () => {
+    if (!quizState.active || quizState.showResult) return;
+    const isLast = quizState.currentIndex >= quizState.questions.length - 1;
+    if (isLast) {
+      finishQuiz();
+      return;
+    }
+    setQuizState(prev => {
+      if (!prev.active || prev.showResult || prev.currentIndex >= prev.questions.length - 1) return prev;
+      return { ...prev, currentIndex: prev.currentIndex + 1 };
+    });
+  };
+
+  const finishQuiz = () => {
+    const questions = quizState.questions;
+    let correctCount = 0;
+    questions.forEach((q, i) => {
+      const ans = quizState.answers[i];
+      if (ans && Number(ans.originalIdx) === Number(q.correct)) correctCount++;
+    });
+    const finalScore = Math.round((correctCount / questions.length) * 100);
+    const startedAt = quizState.startedAt;
+    const endedAt = new Date().toISOString();
+    setQuizState(prev => ({ ...prev, score: correctCount, showResult: true, endedAt }));
+    if (selectedQuiz?.id) {
+      saveProgress(selectedQuiz.id, finalScore, quizState.answers.filter(Boolean), startedAt, endedAt);
+    }
+  };
+
+  const saveProgress = async (quizId, score, answers, startedAt = null, endedAt = null) => {
     if (!studentId || userRole !== 'student') return;
     try {
       await sql`
-        INSERT INTO results (user_id, quiz_id, score, answers) 
-        VALUES (${studentId}, ${quizId}, ${score}, ${JSON.stringify(answers)})
+        INSERT INTO results (user_id, quiz_id, score, answers, started_at, completed_at) 
+        VALUES (${studentId}, ${quizId}, ${score}, ${JSON.stringify(answers)}, ${startedAt}, ${endedAt})
       `;
       fetchStudentData(studentId);
     } catch (err) { console.error("Save progress error:", err); }
   };
 
-  const resetQuiz = () => setQuizState({ active: false, questions: [], currentIndex: 0, score: 0, showResult: false, answers: [] });
+  const resetQuiz = () => setQuizState({ active: false, questions: [], currentIndex: 0, score: 0, showResult: false, answers: [], startedAt: null });
 
   // --- NAVIGATION HELPERS ---
+  const goToStudentSections = (course) => {
+    setSelectedCourse(course);
+    setSelectedSection(null);
+    setSelectedLecture(null);
+    fetchSections(course.id);
+    fetchCourseQuizzes(course.id);
+    navigateTo('student_sections');
+  };
+
+  const goToStudentSection = (section) => {
+    setSelectedSection(section);
+    setSelectedLecture(null);
+    if (section.kind === 'exam') {
+      fetchSectionQuizzes(section.id);
+      navigateTo('student_quizzes');
+    } else {
+      fetchSectionLectures(section.id);
+      fetchCourseQuizzes(selectedCourse?.id);
+      navigateTo('student_lectures');
+    }
+  };
+
   const goToStudentLectures = (course) => {
     setSelectedCourse(course);
+    setSelectedSection(null);
     fetchLectures(course.id);
     fetchCourseQuizzes(course.id);
     navigateTo('student_lectures');
@@ -954,7 +1059,7 @@ export default function App() {
         options: shuffledOptions
       };
     });
-    setQuizState({ active: true, questions: shuffledQuestions, currentIndex: 0, score: 0, showResult: false, answers: [] });
+    setQuizState({ active: true, questions: shuffledQuestions, currentIndex: 0, score: 0, showResult: false, answers: new Array(shuffledQuestions.length).fill(null), startedAt: new Date().toISOString() });
     navigateTo('quiz_taking');
   };
 
@@ -972,7 +1077,7 @@ export default function App() {
           options: shuffledOptions
         };
       });
-      setQuizState(prev => ({ ...prev, questions: shuffledQuestions }));
+      setQuizState(prev => ({ ...prev, questions: shuffledQuestions, answers: new Array(shuffledQuestions.length).fill(null) }));
     }
   }, [quizData, quizState.active]);
 
@@ -984,6 +1089,7 @@ export default function App() {
     setPassword('');
     localStorage.removeItem(SESSION_KEY);
     setSelectedCourse(null);
+    setSelectedSection(null);
     setSelectedLecture(null);
     navigateTo('login', { replace: true });
     setUserProgress({});
@@ -1091,7 +1197,7 @@ export default function App() {
           {courses.map(course => (
             <button 
               key={course.id} 
-              onClick={() => goToStudentLectures(course)}
+              onClick={() => goToStudentSections(course)}
               className="bg-white p-8 rounded-3xl border border-slate-200 shadow-sm hover:shadow-xl hover:border-emerald-400 text-left transition-all group relative overflow-hidden"
             >
               <div className="absolute top-0 right-0 p-4 opacity-10 group-hover:opacity-20 transition-opacity">
@@ -1100,7 +1206,7 @@ export default function App() {
               <h3 className="font-black text-2xl text-slate-800 mb-2">{course.name}</h3>
               <p className="text-slate-500 text-sm mb-6 line-clamp-2">{course.description}</p>
               <div className="flex items-center text-emerald-600 font-bold gap-1 group-hover:gap-2 transition-all">
-                <span>View Lectures</span>
+                <span>View Sections</span>
                 <ChevronRight size={18} />
               </div>
             </button>
@@ -1110,12 +1216,63 @@ export default function App() {
     </div>
   );
 
-  const StudentLectures = () => (
+  const StudentSections = () => (
     <div className="min-h-screen bg-slate-50">
       <Header title={selectedCourse?.name} showBack onBack={() => navigateTo('student_courses')} />
       <main className="max-w-4xl mx-auto p-6 md:p-8">
+        <StudentProgressSummary compact />
         <div className="flex items-center justify-between mb-8">
-          <h2 className="text-2xl font-black text-slate-800">Lectures / لیکچرز</h2>
+          <h2 className="text-2xl font-black text-slate-800">Sections / اقسام</h2>
+          <span className="bg-emerald-100 text-emerald-700 px-4 py-1 rounded-full text-xs font-black uppercase tracking-widest">
+            {sections.length} Sections
+          </span>
+        </div>
+        <div className="grid gap-4">
+          {sections.map(section => {
+            const isExam = section.kind === 'exam';
+            const palette = isExam
+              ? { card: 'bg-indigo-50/70 border-indigo-300 hover:border-indigo-500', icon: 'bg-indigo-600 text-white', badge: 'bg-indigo-600 text-white', accent: 'text-indigo-600' }
+              : { card: 'bg-white border-slate-200 hover:border-emerald-400', icon: 'bg-emerald-600 text-white', badge: 'bg-emerald-600 text-white', accent: 'text-emerald-600' };
+            return (
+              <button
+                key={section.id}
+                onClick={() => goToStudentSection(section)}
+                className={`p-5 rounded-2xl border shadow-sm hover:shadow-md text-left transition-all group flex items-center gap-6 ${palette.card}`}
+              >
+                <div className={`w-14 h-14 rounded-2xl flex items-center justify-center font-black text-2xl transition-all shadow-inner ${palette.icon}`}>
+                  {section.order_index}
+                </div>
+                <div className="flex-1 min-w-0">
+                  <div className="flex flex-wrap items-center gap-3 mb-1">
+                    <h3 className="font-bold text-xl text-slate-800">{section.title}</h3>
+                    <span className={`px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest ${palette.badge}`}>
+                      {isExam ? 'Exam' : 'Lectures'}
+                    </span>
+                  </div>
+                  <div className="text-sm font-bold text-slate-500">
+                    {isExam ? 'Cumulative assessment' : 'Daily lessons and quizzes'}
+                  </div>
+                </div>
+                <ChevronRight className={`${palette.accent} transition-colors shrink-0`} />
+              </button>
+            );
+          })}
+          {sections.length === 0 && (
+            <div className="py-12 text-center bg-slate-100 rounded-3xl border-2 border-dashed border-slate-200">
+              <p className="text-slate-400 font-bold">No sections available for this course yet.</p>
+            </div>
+          )}
+        </div>
+      </main>
+    </div>
+  );
+
+  const StudentLectures = () => (
+    <div className="min-h-screen bg-slate-50">
+      <Header title={`${selectedSection?.title || selectedCourse?.name}`} showBack onBack={() => navigateTo('student_sections')} />
+      <main className="max-w-4xl mx-auto p-6 md:p-8">
+        <div className="flex items-center justify-between mb-8">
+          <h2 className="text-2xl font-black text-slate-800">{selectedSection?.title} - Lectures / لیکچرز</h2>
           <span className="bg-emerald-100 text-emerald-700 px-4 py-1 rounded-full text-xs font-black uppercase tracking-widest">
             {lectures.length} Lessons
           </span>
@@ -1182,7 +1339,7 @@ export default function App() {
 
   const StudentQuizzes = () => (
     <div className="min-h-screen bg-slate-50">
-      <Header title={`${selectedLecture?.title} Quizzes`} showBack onBack={() => navigateTo('student_lectures')} />
+      <Header title={`${selectedSection?.kind === 'exam' ? selectedSection?.title : selectedLecture?.title} Quizzes`} showBack onBack={() => selectedSection?.kind === 'exam' ? navigateTo('student_sections') : navigateTo('student_lectures')} />
       <main className="max-w-4xl mx-auto p-6 md:p-8">
         <StudentProgressSummary compact />
         <h2 className="text-2xl font-black mb-8 text-slate-800">Select Quiz / کوئز منتخب کریں</h2>
@@ -1228,6 +1385,7 @@ export default function App() {
                             quizId: quiz.id,
                             studentName,
                             lectureNum: selectedLecture?.order_index,
+                            sectionTitle: selectedSection?.title,
                             data: { ...attempt, lastScore: attempt.score }
                           })}
                           className="w-full flex items-center justify-between text-xs font-bold text-slate-500 hover:text-emerald-600 hover:bg-emerald-50 rounded-xl px-3 py-2 transition-all"
@@ -1276,8 +1434,14 @@ export default function App() {
                 <h3 className="text-2xl font-black text-slate-800">{viewingDetails.studentName}</h3>
                 <div className="flex items-center gap-3 mt-1">
                   <span className="bg-emerald-600 text-white px-3 py-1 rounded-full text-xs font-black uppercase tabular-nums">{Math.round(viewingDetails.data.lastScore)}%</span>
-                  <span className="text-slate-400 text-sm font-medium">Lecture {viewingDetails.lectureNum} Assessment</span>
+                  <span className="text-slate-400 text-sm font-medium">{viewingDetails.sectionTitle ? `${viewingDetails.sectionTitle} Assessment` : `Lecture ${viewingDetails.lectureNum} Assessment`}</span>
                 </div>
+                {viewingDetails.data.started_at && (
+                  <p className="text-[11px] text-slate-400 font-medium mt-2">
+                    Started {formatRelativeTime(viewingDetails.data.started_at)}
+                    {viewingDetails.data.completed_at && <> · Finished {formatRelativeTime(viewingDetails.data.completed_at)}</>}
+                  </p>
+                )}
               </div>
               <button onClick={() => setViewingDetails(null)} className="p-3 hover:bg-slate-200 rounded-full transition-colors text-slate-400"><X size={32} /></button>
             </header>
@@ -1321,22 +1485,22 @@ export default function App() {
     const { questions, currentIndex, showResult, score } = quizState;
     
     if (showResult) return (
-      <div className="min-h-screen bg-slate-50 flex items-center justify-center p-4">
-        <div className="bg-white w-full max-w-md rounded-[2.5rem] shadow-2xl p-10 text-center border border-slate-100 relative overflow-hidden">
+      <div className="h-screen bg-slate-50 flex items-center justify-center p-4 overflow-y-auto">
+        <div className="bg-white w-full max-w-md rounded-3xl shadow-2xl p-6 sm:p-10 text-center border border-slate-100 relative overflow-hidden my-auto">
           <div className="absolute top-0 left-0 w-full h-2 bg-emerald-500"></div>
-          <div className="inline-flex p-6 bg-emerald-50 rounded-full mb-8 relative">
-            <Trophy size={64} className="text-emerald-600" />
+          <div className="inline-flex p-5 sm:p-6 bg-emerald-50 rounded-full mb-6 sm:mb-8 relative">
+            <Trophy size={56} className="text-emerald-600" />
             <div className="absolute -top-2 -right-2 bg-amber-400 text-white p-2 rounded-full shadow-lg">
-              <CheckCircle2 size={24} />
+              <CheckCircle2 size={20} />
             </div>
           </div>
-          <h2 className="text-3xl font-black text-slate-800 mb-2">Excellent Work!</h2>
-          <p className="text-slate-500 mb-8 font-medium">You've successfully completed the assessment.</p>
-          
-          <div className="p-8 bg-slate-50 rounded-[2rem] border border-slate-100 mb-10">
+          <h2 className="text-2xl sm:text-3xl font-black text-slate-800 mb-2">Excellent Work!</h2>
+          <p className="text-slate-500 mb-6 sm:mb-8 font-medium">You've successfully completed the assessment.</p>
+
+          <div className="p-6 sm:p-8 bg-slate-50 rounded-2xl sm:rounded-[2rem] border border-slate-100 mb-6 sm:mb-8">
             <p className="text-slate-400 uppercase text-[11px] font-black tracking-[0.2em] mb-2">Final Performance</p>
-            <div className="text-7xl font-black text-emerald-600 tabular-nums">{Math.round((score/questions.length)*100)}%</div>
-            <div className="flex items-center justify-center gap-4 mt-6 text-slate-400 text-sm font-bold">
+            <div className="text-6xl sm:text-7xl font-black text-emerald-600 tabular-nums">{Math.round((score/questions.length)*100)}%</div>
+            <div className="flex items-center justify-center gap-4 mt-5 text-slate-400 text-sm font-bold">
               <span className="flex items-center gap-1"><CheckCircle2 size={14} className="text-emerald-500" /> {score} Correct</span>
               <span className="w-1 h-1 bg-slate-300 rounded-full"></span>
               <span className="flex items-center gap-1"><XCircle size={14} className="text-red-400" /> {questions.length - score} Wrong</span>
@@ -1539,8 +1703,8 @@ export default function App() {
     const progress = ((currentIndex + 1) / questions.length) * 100;
 
     return (
-      <div className="min-h-screen bg-slate-50 flex flex-col">
-        <header className="bg-white h-16 border-b flex items-center justify-between px-6 sticky top-0 z-10">
+      <div className="h-screen bg-slate-50 flex flex-col overflow-hidden">
+        <header className="bg-white h-14 md:h-16 border-b flex items-center justify-between px-4 md:px-6 shrink-0 z-10">
           <div className="flex items-center gap-4">
             <button onClick={() => navigateTo('student_quizzes')} className="text-slate-400 hover:text-red-500 transition-colors">
               <X size={24} />
@@ -1565,24 +1729,49 @@ export default function App() {
           </div>
         </header>
 
-        <main className="flex-1 max-w-3xl mx-auto w-full px-6 py-12">
-          <div className="bg-white rounded-[2.5rem] shadow-sm border border-slate-100 overflow-hidden">
-            <div className="p-8 md:p-12 text-center border-b border-slate-50">
-              <h2 className="text-2xl md:text-3xl font-bold mb-6 text-slate-800 leading-snug">{q.qEn}</h2>
-              <h2 dir="rtl" className="text-3xl md:text-4xl font-bold text-emerald-700 font-urdu leading-relaxed">{q.qUr}</h2>
+        <main className="flex-1 w-full flex flex-col max-w-3xl mx-auto px-4 sm:px-6 py-4 md:py-6 min-h-0">
+          <div className="bg-white rounded-2xl sm:rounded-3xl shadow-sm border border-slate-100 overflow-hidden flex flex-col flex-1 min-h-0">
+            <div className="px-5 py-4 md:px-8 md:py-5 text-center border-b border-slate-50 shrink-0">
+              <h2 className="text-lg sm:text-2xl md:text-[1.7rem] font-bold mb-3 text-slate-800 leading-snug">{q.qEn}</h2>
+              <h2 dir="rtl" className="text-xl sm:text-2xl md:text-3xl font-bold text-emerald-700 font-urdu leading-relaxed">{q.qUr}</h2>
             </div>
-            <div className="p-8 md:p-12 bg-slate-50/50 space-y-4">
-              {q.options.map((opt) => (
-                <button 
-                  key={opt.originalIdx ?? opt.en} 
-                  type="button"
-                  onClick={() => submitQuizAnswer(opt, { persistQuizId: selectedQuiz?.id })} 
-                  className="w-full p-6 bg-white border-2 border-slate-100 rounded-2xl text-left flex flex-col md:flex-row md:items-center justify-between group hover:border-emerald-500 hover:shadow-lg transition-colors"
-                >
-                  <span className="text-lg font-bold text-slate-700 group-hover:text-emerald-700">{opt.en}</span>
-                  <span dir="rtl" className="text-xl font-bold text-emerald-600 font-urdu mt-2 md:mt-0">{opt.ur}</span>
-                </button>
-              ))}
+            <div className="px-4 py-4 md:px-8 md:py-6 bg-slate-50/50 space-y-3 flex-1 overflow-y-auto min-h-0">
+              {q.options.map((opt) => {
+                const selected = currentAnswer && Number(currentAnswer.originalIdx) === Number(opt.originalIdx);
+                return (
+                  <button
+                    key={opt.originalIdx ?? opt.en}
+                    type="button"
+                    onClick={() => selectAnswer(opt, { persistQuizId: selectedQuiz?.id })}
+                    className={`w-full px-4 py-3 md:p-4 bg-white border-2 rounded-xl md:rounded-2xl text-left flex flex-col md:flex-row md:items-center justify-between group transition-all ${
+                      selected
+                        ? 'border-emerald-500 bg-emerald-50 shadow-md'
+                        : 'border-slate-100 hover:border-emerald-500 hover:shadow-md'
+                    }`}
+                  >
+                    <span className={`text-base md:text-lg font-bold ${selected ? 'text-emerald-700' : 'text-slate-700 group-hover:text-emerald-700'}`}>{opt.en}</span>
+                    <span dir="rtl" className="text-lg md:text-xl font-bold text-emerald-600 font-urdu mt-1 md:mt-0">{opt.ur}</span>
+                  </button>
+                );
+              })}
+            </div>
+            <div className="px-4 py-3 md:px-8 md:py-4 border-t border-slate-100 bg-white flex items-center justify-between gap-3 shrink-0">
+              <button
+                type="button"
+                onClick={goToPreviousQuestion}
+                disabled={currentIndex === 0}
+                className="flex items-center gap-2 px-4 md:px-5 py-2.5 rounded-xl border border-slate-200 text-slate-600 font-bold text-sm transition-colors disabled:opacity-40 disabled:pointer-events-none"
+              >
+                <ArrowLeft size={16} /> Previous
+              </button>
+              <div className="text-xs font-black text-slate-400 tabular-nums">{currentIndex + 1} / {questions.length}</div>
+              <button
+                type="button"
+                onClick={goToNextQuestion}
+                className="flex items-center gap-2 px-4 md:px-6 py-2.5 rounded-xl bg-emerald-600 text-white font-bold text-sm hover:bg-emerald-700 transition-colors shadow-sm"
+              >
+                {currentIndex >= questions.length - 1 ? 'Finish Quiz' : 'Next'} <ArrowRight size={16} />
+              </button>
             </div>
           </div>
         </main>
@@ -1693,7 +1882,7 @@ export default function App() {
                 <h3 className="font-black text-2xl text-slate-800">Quizzes Section: {selectedCourse?.name}</h3>
               </div>
               <button 
-                onClick={() => { setInstructorView('lectures'); fetchLectures(selectedCourse.id); }}
+                onClick={() => { setInstructorView('lectures'); fetchSections(selectedCourse.id, true); }}
                 className="flex items-center gap-2 bg-slate-900 text-white px-4 py-2 rounded-xl text-xs font-bold hover:bg-black transition-all"
               >
                 <Settings size={16} /> Manage Content
@@ -1713,7 +1902,7 @@ export default function App() {
                       <ClipboardList size={24} />
                     </div>
                     <h4 className="font-bold text-lg text-slate-800 mb-1">{title}</h4>
-                    <p className="text-slate-400 text-xs mb-4">Lecture {quizGroup.lecture_order}: {quizGroup.lecture_title}</p>
+                    <p className="text-slate-400 text-xs mb-4">{quizGroup.section_kind === 'exam' ? `Section: ${quizGroup.section_title}` : `Lecture ${quizGroup.lecture_order}: ${quizGroup.lecture_title}`}</p>
                     <div className="flex items-center justify-between mt-4 pt-4 border-t border-slate-50">
                       <span className="text-xs font-bold text-slate-400">{versionsCount} Versions Available</span>
                       <ChevronRight size={18} className="text-slate-300 group-hover:text-emerald-500" />
@@ -1815,6 +2004,7 @@ export default function App() {
                                 quizId: selectedQuiz.id,
                                 studentName: res.username,
                                 lectureNum: selectedQuiz.title,
+                                sectionTitle: selectedQuiz.section_title,
                                 data: { ...res, lastScore: res.score }
                               });
                             }}
@@ -1873,43 +2063,106 @@ export default function App() {
         {instructorView === 'lectures' && (
           <div className="grid gap-4">
             <div className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm mb-4">
-              <h3 className="font-black text-lg text-slate-800 mb-4 flex items-center gap-2"><Plus size={20} className="text-emerald-600" /> New Lecture</h3>
-              <form onSubmit={(e) => {
-                e.preventDefault();
-                handleCreateLecture(selectedCourse.id, e.target.title.value, parseInt(e.target.order.value));
-                e.target.reset();
-              }} className="flex flex-wrap gap-4 items-end">
+              <div className="flex flex-wrap items-end gap-4">
                 <div className="flex-1 min-w-[200px]">
-                  <label className="text-[10px] font-black uppercase text-slate-400 ml-2">Lecture Title</label>
-                  <input name="title" required className="w-full p-3 rounded-xl border bg-slate-50 outline-none focus:ring-2 focus:ring-emerald-500 font-bold" />
+                  <label className="text-[10px] font-black uppercase text-slate-400 ml-2">Section</label>
+                  <select
+                    className="w-full p-3 rounded-xl border bg-slate-50 outline-none focus:ring-2 focus:ring-emerald-500 font-bold"
+                    value={selectedSection?.id || ''}
+                    onChange={(e) => {
+                      const sec = sections.find(s => s.id === Number(e.target.value));
+                      setSelectedSection(sec);
+                      if (sec?.kind === 'exam') fetchSectionQuizzes(sec.id);
+                      else if (sec) fetchSectionLectures(sec.id);
+                    }}
+                  >
+                    <option value="" disabled>Select a section</option>
+                    {sections.map(s => <option key={s.id} value={s.id}>{s.title}</option>)}
+                  </select>
                 </div>
-                <div className="w-24">
-                  <label className="text-[10px] font-black uppercase text-slate-400 ml-2">Order</label>
-                  <input name="order" type="number" required defaultValue={lectures.length + 1} className="w-full p-3 rounded-xl border bg-slate-50 outline-none focus:ring-2 focus:ring-emerald-500 font-bold" />
-                </div>
-                <button type="submit" className="bg-emerald-600 text-white px-6 py-3 rounded-xl font-bold hover:bg-emerald-700 transition-all shadow-lg shadow-emerald-100">Add</button>
-              </form>
-            </div>
-            <div className="flex items-center justify-between mb-4 px-2">
-              <h3 className="font-black text-xl text-slate-800">Course Content: {selectedCourse?.name}</h3>
-            </div>
-            {lectures.map(lec => (
-              <div key={lec.id} className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm flex items-center justify-between group">
-                <div className="flex items-center gap-4">
-                  <div className="w-12 h-12 bg-slate-50 rounded-xl flex items-center justify-center font-black text-slate-400 border border-slate-100">{lec.order_index}</div>
-                  <div>
-                    <h4 className="font-bold text-slate-800">{lec.title}</h4>
-                    <p className="text-slate-400 text-xs">Lecture content and assessments</p>
-                  </div>
-                </div>
-                <button 
-                  onClick={() => { setSelectedLecture(lec); setInstructorView('quizzes'); fetchQuizzes(lec.id); }}
-                  className="bg-slate-900 text-white px-4 py-2 rounded-xl text-xs font-bold hover:bg-black transition-all"
-                >
-                  Manage Quizzes
-                </button>
               </div>
-            ))}
+            </div>
+            {selectedSection && selectedSection.kind === 'exam' ? (
+              <div className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm">
+                <div className="flex flex-wrap items-center justify-between gap-4 mb-4">
+                  <h3 className="font-black text-lg text-slate-800 flex items-center gap-2"><ClipboardList size={20} className="text-emerald-600" /> Exam Quizzes: {selectedSection.title}</h3>
+                  <form onSubmit={(e) => {
+                    e.preventDefault();
+                    handleCreateQuiz(null, e.target.title.value, e.target.type.value, parseInt(e.target.version.value), selectedSection.id);
+                    e.target.reset();
+                  }} className="flex flex-wrap gap-2 items-end">
+                    <input name="title" required placeholder="Quiz Title" className="p-2.5 rounded-xl border bg-slate-50 outline-none focus:ring-2 focus:ring-emerald-500 font-bold" />
+                    <select name="type" className="p-2.5 rounded-xl border bg-slate-50 outline-none focus:ring-2 focus:ring-emerald-500 font-bold">
+                      <option value="Mid Term">Mid Term</option>
+                      <option value="Final">Final</option>
+                    </select>
+                    <input name="version" type="number" min="1" max="255" required defaultValue={1} className="w-20 p-2.5 rounded-xl border bg-slate-50 outline-none focus:ring-2 focus:ring-emerald-500 font-bold" />
+                    <button type="submit" className="bg-emerald-600 text-white px-4 py-2.5 rounded-xl font-bold hover:bg-emerald-700 transition-all">Add Quiz</button>
+                  </form>
+                </div>
+                {quizzes.map(quiz => (
+                  <div key={quiz.id} className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm flex items-center justify-between group mb-2">
+                    <div>
+                      <div className="flex items-center gap-2 mb-1">
+                        <span className="text-[10px] font-black uppercase tracking-widest text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded">Version {quiz.version}</span>
+                        <span className="text-[10px] font-black uppercase tracking-widest text-slate-400 bg-slate-50 px-2 py-0.5 rounded">{quiz.quiz_type}</span>
+                      </div>
+                      <h4 className="font-bold text-slate-800 text-lg">{quiz.title}</h4>
+                    </div>
+                    <button
+                      onClick={() => { setSelectedQuiz(quiz); setInstructorView('results'); fetchSpecificQuizResults(quiz.id); }}
+                      className="bg-slate-900 text-white px-4 py-2 rounded-xl text-xs font-bold hover:bg-black transition-all"
+                    >
+                      View Results
+                    </button>
+                  </div>
+                ))}
+                {quizzes.length === 0 && <p className="text-slate-400 font-bold py-6 text-center">No quizzes in this exam section.</p>}
+              </div>
+            ) : (
+              <>
+                <div className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm">
+                  <h3 className="font-black text-lg text-slate-800 mb-4 flex items-center gap-2"><Plus size={20} className="text-emerald-600" /> New Lecture</h3>
+                  <form onSubmit={(e) => {
+                    e.preventDefault();
+                    if (!selectedSection) { alert('Select a section first'); return; }
+                    handleCreateLecture(selectedSection.id, e.target.title.value, parseInt(e.target.order.value));
+                    e.target.reset();
+                  }} className="flex flex-wrap gap-4 items-end">
+                    <div className="flex-1 min-w-[200px]">
+                      <label className="text-[10px] font-black uppercase text-slate-400 ml-2">Lecture Title</label>
+                      <input name="title" required className="w-full p-3 rounded-xl border bg-slate-50 outline-none focus:ring-2 focus:ring-emerald-500 font-bold" />
+                    </div>
+                    <div className="w-24">
+                      <label className="text-[10px] font-black uppercase text-slate-400 ml-2">Order</label>
+                      <input name="order" type="number" required defaultValue={lectures.length + 1} className="w-full p-3 rounded-xl border bg-slate-50 outline-none focus:ring-2 focus:ring-emerald-500 font-bold" />
+                    </div>
+                    <button type="submit" className="bg-emerald-600 text-white px-6 py-3 rounded-xl font-bold hover:bg-emerald-700 transition-all shadow-lg shadow-emerald-100">Add</button>
+                  </form>
+                </div>
+                <div className="flex items-center justify-between mb-4 px-2">
+                  <h3 className="font-black text-xl text-slate-800">{selectedSection?.title || selectedCourse?.name} - Lectures</h3>
+                </div>
+                {lectures.map(lec => (
+                  <div key={lec.id} className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm flex items-center justify-between group">
+                    <div className="flex items-center gap-4">
+                      <div className="w-12 h-12 bg-slate-50 rounded-xl flex items-center justify-center font-black text-slate-400 border border-slate-100">{lec.order_index}</div>
+                      <div>
+                        <h4 className="font-bold text-slate-800">{lec.title}</h4>
+                        <p className="text-slate-400 text-xs">Lecture content and assessments</p>
+                      </div>
+                    </div>
+                    <button 
+                      onClick={() => { setSelectedLecture(lec); setInstructorView('quizzes'); fetchQuizzes(lec.id); }}
+                      className="bg-slate-900 text-white px-4 py-2 rounded-xl text-xs font-bold hover:bg-black transition-all"
+                    >
+                      Manage Quizzes
+                    </button>
+                  </div>
+                ))}
+                {lectures.length === 0 && <p className="text-slate-400 font-bold py-6 text-center">No lectures in this section.</p>}
+              </>
+            )}
           </div>
         )}
 
@@ -2050,8 +2303,14 @@ export default function App() {
                 <h3 className="text-2xl font-black text-slate-800">{viewingDetails.studentName}</h3>
                 <div className="flex items-center gap-3 mt-1">
                   <span className="bg-emerald-600 text-white px-3 py-1 rounded-full text-xs font-black uppercase tabular-nums">{Math.round(viewingDetails.data.lastScore)}%</span>
-                  <span className="text-slate-400 text-sm font-medium">Lecture {viewingDetails.lectureNum} Assessment</span>
+                  <span className="text-slate-400 text-sm font-medium">{viewingDetails.sectionTitle ? `${viewingDetails.sectionTitle} Assessment` : `Lecture ${viewingDetails.lectureNum} Assessment`}</span>
                 </div>
+                {viewingDetails.data.started_at && (
+                  <p className="text-[11px] text-slate-400 font-medium mt-2">
+                    Started {formatRelativeTime(viewingDetails.data.started_at)}
+                    {viewingDetails.data.completed_at && <> · Finished {formatRelativeTime(viewingDetails.data.completed_at)}</>}
+                  </p>
+                )}
               </div>
               <button onClick={() => setViewingDetails(null)} className="p-3 hover:bg-slate-200 rounded-full transition-colors text-slate-400"><X size={32} /></button>
             </header>
@@ -2327,6 +2586,7 @@ export default function App() {
   // Main Content Switcher
   switch(view) {
     case 'student_courses': return <StudentCourses />;
+    case 'student_sections': return <StudentSections />;
     case 'student_lectures': return <StudentLectures />;
     case 'student_quizzes': return <StudentQuizzes />;
     case 'quiz_taking': return <QuizTaking />;
