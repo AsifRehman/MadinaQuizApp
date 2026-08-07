@@ -1277,7 +1277,7 @@ export default function App() {
             {lectures.length} Lessons
           </span>
         </div>
-        <div className="grid gap-4">
+        <div className="grid gap-4 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3">
           {lectures.map(lec => {
             const progress = getLectureProgress(lec);
             const palette = progress.status === 'complete'
@@ -1307,19 +1307,22 @@ export default function App() {
               <button 
                 key={lec.id} 
                 onClick={() => goToStudentQuizzes(lec)}
-                className={`p-5 rounded-2xl border shadow-sm hover:shadow-md text-left transition-all group flex items-center gap-6 ${palette.card}`}
+                className={`p-5 rounded-2xl border shadow-sm hover:shadow-md text-left transition-all group flex flex-col gap-4 ${palette.card}`}
               >
-                <div className={`w-14 h-14 rounded-2xl flex items-center justify-center font-black text-2xl transition-all shadow-inner border ${palette.number}`}>
-                  {lec.order_index}
+                <div className="flex items-center justify-between">
+                  <div className={`w-12 h-12 rounded-2xl flex items-center justify-center font-black text-xl transition-all shadow-inner border ${palette.number}`}>
+                    {lec.order_index}
+                  </div>
+                  <ChevronRight className={`${palette.icon} transition-colors shrink-0`} />
                 </div>
                 <div className="flex-1 min-w-0">
-                  <div className="flex flex-wrap items-center gap-3 mb-1">
-                    <h3 className="font-bold text-xl text-slate-800">{lec.title}</h3>
-                    <span className={`px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest ${palette.badge}`}>
-                      {palette.label}
-                    </span>
+                  <div className="flex flex-wrap items-center gap-2 mb-2">
+                    <h3 className="font-bold text-lg text-slate-800 leading-snug">{lec.title}</h3>
                   </div>
-                  <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm font-bold">
+                  <span className={`inline-block px-2.5 py-1 rounded-full text-[10px] font-black uppercase tracking-widest ${palette.badge}`}>
+                    {palette.label}
+                  </span>
+                  <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm font-bold mt-3">
                     <span className="text-slate-500">
                       {progress.attempted}/{progress.total || 0} versions attempted
                     </span>
@@ -1328,7 +1331,6 @@ export default function App() {
                     </span>
                   </div>
                 </div>
-                <ChevronRight className={`${palette.icon} transition-colors shrink-0`} />
               </button>
             );
           })}
@@ -1342,20 +1344,47 @@ export default function App() {
       <Header title={`${selectedSection?.kind === 'exam' ? selectedSection?.title : selectedLecture?.title} Quizzes`} showBack onBack={() => selectedSection?.kind === 'exam' ? navigateTo('student_sections') : navigateTo('student_lectures')} />
       <main className="max-w-4xl mx-auto p-6 md:p-8">
         <StudentProgressSummary compact />
-        <h2 className="text-2xl font-black mb-8 text-slate-800">Select Quiz / کوئز منتخب کریں</h2>
+        <div className="flex items-center justify-between mb-8">
+          <h2 className="text-2xl font-black text-slate-800">Select Quiz / کوئز منتخب کریں</h2>
+          {selectedSection?.kind === 'exam' && (
+            <span className="bg-indigo-100 text-indigo-700 px-4 py-1 rounded-full text-xs font-black uppercase tracking-widest">
+              Exam Section
+            </span>
+          )}
+        </div>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
           {quizzes.map(quiz => {
             const result = userProgress[`quiz_${quiz.id}`];
+            const isExam = selectedSection?.kind === 'exam';
+            const palette = isExam
+              ? {
+                  card: 'border-indigo-200 hover:border-indigo-500',
+                  icon: 'bg-indigo-50 text-indigo-600 group-hover:bg-indigo-600 group-hover:text-white',
+                  accent: 'text-indigo-600',
+                  badge: 'bg-indigo-100 text-indigo-700',
+                  latest: 'text-indigo-600',
+                  start: 'bg-indigo-600 hover:bg-indigo-700',
+                  hoverText: 'hover:text-indigo-600 hover:bg-indigo-50'
+                }
+              : {
+                  card: 'border-slate-100 hover:border-emerald-500',
+                  icon: 'bg-emerald-50 text-emerald-600 group-hover:bg-emerald-600 group-hover:text-white',
+                  accent: 'text-emerald-600',
+                  badge: 'bg-slate-50 text-slate-400',
+                  latest: 'text-emerald-600',
+                  start: 'bg-slate-900 hover:bg-black',
+                  hoverText: 'hover:text-emerald-600 hover:bg-emerald-50'
+                };
             return (
               <div 
                 key={quiz.id} 
-                className="bg-white p-6 rounded-3xl border-2 border-slate-100 shadow-sm hover:shadow-xl hover:border-emerald-500 text-left transition-all group relative"
+                className={`bg-white p-6 rounded-3xl border-2 shadow-sm hover:shadow-xl text-left transition-all group relative ${palette.card}`}
               >
                 <div className="flex items-start justify-between mb-4">
-                  <div className="p-3 bg-emerald-50 rounded-2xl text-emerald-600 group-hover:bg-emerald-600 group-hover:text-white transition-colors">
+                  <div className={`p-3 rounded-2xl transition-colors ${palette.icon}`}>
                     <FileText size={24} />
                   </div>
-                  <span className="text-[10px] font-black uppercase tracking-widest text-slate-400 bg-slate-50 px-2 py-1 rounded-lg">
+                  <span className={`text-[10px] font-black uppercase tracking-widest px-2 py-1 rounded-lg ${palette.badge}`}>
                     Version {quiz.version}
                   </span>
                 </div>
@@ -1370,7 +1399,7 @@ export default function App() {
                       </div>
                       <div className="bg-slate-50 rounded-xl p-3 border border-slate-100">
                         <p className="text-[9px] font-black uppercase text-slate-400">Latest</p>
-                        <p className="text-lg font-black text-emerald-600 tabular-nums">{Math.round(result.latestScore)}%</p>
+                        <p className={`text-lg font-black tabular-nums ${palette.latest}`}>{Math.round(result.latestScore)}%</p>
                       </div>
                       <div className="bg-slate-50 rounded-xl p-3 border border-slate-100">
                         <p className="text-[9px] font-black uppercase text-slate-400">Best</p>
@@ -1388,7 +1417,7 @@ export default function App() {
                             sectionTitle: selectedSection?.title,
                             data: { ...attempt, lastScore: attempt.score }
                           })}
-                          className="w-full flex items-center justify-between text-xs font-bold text-slate-500 hover:text-emerald-600 hover:bg-emerald-50 rounded-xl px-3 py-2 transition-all"
+                          className={`w-full flex items-center justify-between text-xs font-bold text-slate-500 rounded-xl px-3 py-2 transition-all ${palette.hoverText}`}
                         >
                           <span>Review Attempt {result.attemptCount - index}</span>
                           <span className="tabular-nums">{Math.round(attempt.score)}% - {formatRelativeTime(attempt.completedAt)}</span>
@@ -1402,7 +1431,7 @@ export default function App() {
                     </div>
                     <button
                       onClick={() => startTakingQuiz(quiz)}
-                      className="w-full bg-slate-900 text-white font-black py-3 rounded-2xl hover:bg-black transition-all"
+                      className={`w-full text-white font-black py-3 rounded-2xl transition-all ${palette.start}`}
                     >
                       Start New Attempt
                     </button>
@@ -1410,7 +1439,7 @@ export default function App() {
                 ) : (
                   <button
                     onClick={() => startTakingQuiz(quiz)}
-                    className="flex items-center gap-2 text-emerald-600 font-bold text-sm mt-4 hover:text-emerald-700 transition-colors"
+                    className={`flex items-center gap-2 font-bold text-sm mt-4 hover:text-emerald-700 transition-colors ${palette.accent}`}
                   >
                     <Plus size={16} />
                     <span>Start New Attempt</span>
@@ -1701,6 +1730,30 @@ export default function App() {
 
     const q = questions[currentIndex];
     const progress = ((currentIndex + 1) / questions.length) * 100;
+    const isExam = selectedSection?.kind === 'exam';
+    const examPalette = isExam
+      ? {
+          qUr: 'text-indigo-700',
+          progress: 'bg-indigo-500',
+          next: 'bg-indigo-600 hover:bg-indigo-700',
+          selected: 'border-indigo-500 bg-indigo-50',
+          option: 'hover:border-indigo-500',
+          selectedText: 'text-indigo-700',
+          optionText: 'group-hover:text-indigo-700',
+          urText: 'text-indigo-600',
+          finishBorder: 'border-indigo-200',
+        }
+      : {
+          qUr: 'text-emerald-700',
+          progress: 'bg-emerald-500',
+          next: 'bg-emerald-600 hover:bg-emerald-700',
+          selected: 'border-emerald-500 bg-emerald-50',
+          option: 'hover:border-emerald-500',
+          selectedText: 'text-emerald-700',
+          optionText: 'group-hover:text-emerald-700',
+          urText: 'text-emerald-600',
+          finishBorder: 'border-slate-100',
+        };
 
     return (
       <div className="h-screen bg-slate-50 flex flex-col overflow-hidden">
@@ -1712,7 +1765,10 @@ export default function App() {
             <div className="h-8 w-[1px] bg-slate-100"></div>
             <div>
               <p className="text-[10px] font-black uppercase text-slate-400 tracking-widest">{selectedQuiz?.title}</p>
-              <p className="text-sm font-bold text-slate-700">Question {currentIndex + 1} of {questions.length}</p>
+              <div className="flex items-center gap-2">
+                {isExam && <span className="bg-indigo-100 text-indigo-700 px-2 py-0.5 rounded-full text-[9px] font-black uppercase tracking-widest">Exam</span>}
+                <p className="text-sm font-bold text-slate-700">Question {currentIndex + 1} of {questions.length}</p>
+              </div>
             </div>
           </div>
           <div className="flex items-center gap-4">
@@ -1724,7 +1780,7 @@ export default function App() {
               <span>Edit Question</span>
             </button>
             <div className="w-48 h-2 bg-slate-100 rounded-full overflow-hidden hidden sm:block">
-              <div className="h-full bg-emerald-500 transition-all duration-500" style={{ width: `${progress}%` }}></div>
+              <div className={`h-full transition-all duration-500 ${examPalette.progress}`} style={{ width: `${progress}%` }}></div>
             </div>
           </div>
         </header>
@@ -1733,7 +1789,7 @@ export default function App() {
           <div className="bg-white rounded-2xl sm:rounded-3xl shadow-sm border border-slate-100 overflow-hidden flex flex-col flex-1 min-h-0">
             <div className="px-5 py-4 md:px-8 md:py-5 text-center border-b border-slate-50 shrink-0">
               <h2 className="text-lg sm:text-2xl md:text-[1.7rem] font-bold mb-3 text-slate-800 leading-snug">{q.qEn}</h2>
-              <h2 dir="rtl" className="text-xl sm:text-2xl md:text-3xl font-bold text-emerald-700 font-urdu leading-relaxed">{q.qUr}</h2>
+              <h2 dir="rtl" className={`text-xl sm:text-2xl md:text-3xl font-bold font-urdu leading-relaxed ${examPalette.qUr}`}>{q.qUr}</h2>
             </div>
             <div className="px-4 py-4 md:px-8 md:py-6 bg-slate-50/50 space-y-3 flex-1 overflow-y-auto min-h-0">
               {q.options.map((opt) => {
@@ -1745,17 +1801,17 @@ export default function App() {
                     onClick={() => selectAnswer(opt, { persistQuizId: selectedQuiz?.id })}
                     className={`w-full px-4 py-3 md:p-4 bg-white border-2 rounded-xl md:rounded-2xl text-left flex flex-col md:flex-row md:items-center justify-between group transition-all ${
                       selected
-                        ? 'border-emerald-500 bg-emerald-50 shadow-md'
-                        : 'border-slate-100 hover:border-emerald-500 hover:shadow-md'
+                        ? `${examPalette.selected} shadow-md`
+                        : `border-slate-100 ${examPalette.option} hover:shadow-md`
                     }`}
                   >
-                    <span className={`text-base md:text-lg font-bold ${selected ? 'text-emerald-700' : 'text-slate-700 group-hover:text-emerald-700'}`}>{opt.en}</span>
-                    <span dir="rtl" className="text-lg md:text-xl font-bold text-emerald-600 font-urdu mt-1 md:mt-0">{opt.ur}</span>
+                    <span className={`text-base md:text-lg font-bold ${selected ? examPalette.selectedText : `text-slate-700 ${examPalette.optionText}`}`}>{opt.en}</span>
+                    <span dir="rtl" className={`text-lg md:text-xl font-bold font-urdu mt-1 md:mt-0 ${examPalette.urText}`}>{opt.ur}</span>
                   </button>
                 );
               })}
             </div>
-            <div className="px-4 py-3 md:px-8 md:py-4 border-t border-slate-100 bg-white flex items-center justify-between gap-3 shrink-0">
+            <div className={`px-4 py-3 md:px-8 md:py-4 border-t bg-white flex items-center justify-between gap-3 shrink-0 ${examPalette.finishBorder}`}>
               <button
                 type="button"
                 onClick={goToPreviousQuestion}
@@ -1768,7 +1824,7 @@ export default function App() {
               <button
                 type="button"
                 onClick={goToNextQuestion}
-                className="flex items-center gap-2 px-4 md:px-6 py-2.5 rounded-xl bg-emerald-600 text-white font-bold text-sm hover:bg-emerald-700 transition-colors shadow-sm"
+                className={`flex items-center gap-2 px-4 md:px-6 py-2.5 rounded-xl text-white font-bold text-sm transition-colors shadow-sm ${examPalette.next}`}
               >
                 {currentIndex >= questions.length - 1 ? 'Finish Quiz' : 'Next'} <ArrowRight size={16} />
               </button>
