@@ -32,3 +32,57 @@
     opacity: 0;
   }
 }
+
+/* Hide scrollbar for smooth tab strips */
+.scrollbar-none::-webkit-scrollbar {
+  display: none;
+}
+.scrollbar-none {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+/* Part transition & highlight animations */
+@keyframes partHighlightPulse {
+  0% {
+    transform: scale(0.92);
+    box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.7);
+  }
+  40% {
+    transform: scale(1.08);
+    box-shadow: 0 0 0 8px rgba(16, 185, 129, 0);
+  }
+  70% {
+    transform: scale(0.98);
+  }
+  100% {
+    transform: scale(1);
+    box-shadow: 0 4px 14px -2px rgba(16, 185, 129, 0.35);
+  }
+}
+
+@keyframes examPartHighlightPulse {
+  0% {
+    transform: scale(0.92);
+    box-shadow: 0 0 0 0 rgba(99, 102, 241, 0.7);
+  }
+  40% {
+    transform: scale(1.08);
+    box-shadow: 0 0 0 8px rgba(99, 102, 241, 0);
+  }
+  70% {
+    transform: scale(0.98);
+  }
+  100% {
+    transform: scale(1);
+    box-shadow: 0 4px 14px -2px rgba(99, 102, 241, 0.35);
+  }
+}
+
+.animate-part-active {
+  animation: partHighlightPulse 0.55s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
+}
+
+.animate-exam-part-active {
+  animation: examPartHighlightPulse 0.55s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
+}

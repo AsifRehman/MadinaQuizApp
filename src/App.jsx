@@ -1,13 +1,13 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { neon } from '@neondatabase/serverless';
 import { getGroqResponse } from './groq';
-import { 
-  BookOpen, 
-  CheckCircle2, 
-  XCircle, 
-  Trophy, 
-  LogOut, 
-  User, 
+import {
+  BookOpen,
+  CheckCircle2,
+  XCircle,
+  Trophy,
+  LogOut,
+  User,
   ChevronRight,
   GraduationCap,
   Languages,
@@ -153,14 +153,14 @@ export default function App() {
       if (dbQ) {
         setEditQuestionEn(dbQ.question_en);
         setEditQuestionUr(dbQ.question_ur);
-        
+
         const opts = typeof dbQ.options === 'string' ? JSON.parse(dbQ.options) : dbQ.options;
         const paddedOpts = Array.from({ length: 4 }).map((_, idx) => {
           return opts[idx] || { en: '', ur: '' };
         });
         setEditOptions(paddedOpts);
         setEditCorrectIndex(Number(dbQ.correct_option_index));
-        
+
         const initialJson = JSON.stringify({
           question_en: dbQ.question_en,
           question_ur: dbQ.question_ur,
@@ -189,7 +189,7 @@ export default function App() {
         };
         setEditJsonValue(JSON.stringify(obj, null, 2));
         setJsonError('');
-      } catch (e) {}
+      } catch (e) { }
     }
   }, [editQuestionEn, editQuestionUr, editOptions, editCorrectIndex, isEditingQuestion]);
 
@@ -356,8 +356,8 @@ export default function App() {
         ORDER BY c.name ASC
       `;
       setCourses(data);
-    } catch (err) { 
-      console.error("Fetch courses error:", err); 
+    } catch (err) {
+      console.error("Fetch courses error:", err);
     } finally {
       setIsLoadingData(false);
     }
@@ -405,18 +405,28 @@ export default function App() {
     } catch (err) { console.error("Fetch quizzes error:", err); }
   };
 
-  const fetchCourseQuizzes = async (courseId) => {
+  const fetchCourseQuizzes = async (courseId, sectionId = null) => {
     if (!courseId) return;
     try {
-      const data = await sql`
-        SELECT q.*, l.title as lecture_title, l.order_index as lecture_order, s.title as section_title, s.kind as section_kind
-        FROM quizzes q
-        LEFT JOIN lectures l ON q.lecture_id = l.id
-        LEFT JOIN sections s ON q.section_id = s.id
-        LEFT JOIN sections s2 ON l.section_id = s2.id
-        WHERE s.course_id = ${courseId} OR s2.course_id = ${courseId}
-        ORDER BY COALESCE(s2.order_index, s.order_index) ASC, COALESCE(l.order_index, 0) ASC, q.version ASC
-      `;
+      const data = sectionId
+        ? await sql`
+            SELECT q.*, l.title as lecture_title, l.order_index as lecture_order, s.title as section_title, s.kind as section_kind
+            FROM quizzes q
+            LEFT JOIN lectures l ON q.lecture_id = l.id
+            LEFT JOIN sections s ON q.section_id = s.id
+            LEFT JOIN sections s2 ON l.section_id = s2.id
+            WHERE (s.id = ${sectionId} OR s2.id = ${sectionId})
+            ORDER BY COALESCE(l.order_index, 0) ASC, q.version ASC
+          `
+        : await sql`
+            SELECT q.*, l.title as lecture_title, l.order_index as lecture_order, s.title as section_title, s.kind as section_kind
+            FROM quizzes q
+            LEFT JOIN lectures l ON q.lecture_id = l.id
+            LEFT JOIN sections s ON q.section_id = s.id
+            LEFT JOIN sections s2 ON l.section_id = s2.id
+            WHERE s.course_id = ${courseId} OR s2.course_id = ${courseId}
+            ORDER BY COALESCE(s2.order_index, s.order_index) ASC, COALESCE(l.order_index, 0) ASC, q.version ASC
+          `;
       setCourseQuizzes(data);
     } catch (err) { console.error("Fetch course quizzes error:", err); }
   };
@@ -441,7 +451,7 @@ export default function App() {
     try {
       // 1. Fetch current questions
       const currentQuestions = await sql`SELECT * FROM questions WHERE quiz_id = ${baseQuiz.id} ORDER BY id ASC`;
-      
+
       if (currentQuestions.length === 0) {
         alert("No questions found in the base quiz to generate from.");
         return;
@@ -454,11 +464,11 @@ export default function App() {
         
         BASE QUESTIONS (JSON):
         ${JSON.stringify(currentQuestions.map(q => ({
-          qEn: q.question_en,
-          qUr: q.question_ur,
-          options: typeof q.options === 'string' ? JSON.parse(q.options) : q.options,
-          correct: q.correct_option_index
-        })))}
+        qEn: q.question_en,
+        qUr: q.question_ur,
+        options: typeof q.options === 'string' ? JSON.parse(q.options) : q.options,
+        correct: q.correct_option_index
+      })))}
 
         INSTRUCTIONS:
         1. Generate exactly ${currentQuestions.length} new questions.
@@ -516,7 +526,8 @@ export default function App() {
         qEn: q.question_en,
         qUr: q.question_ur,
         options: typeof q.options === 'string' ? JSON.parse(q.options) : q.options,
-        correct: Number(q.correct_option_index)
+        correct: Number(q.correct_option_index),
+        part: q.part || null
       }));
       setQuizData(mappedQuestions);
       return mappedQuestions;
@@ -538,6 +549,7 @@ export default function App() {
     questionId: question.id,
     qEn: question.qEn,
     qUr: question.qUr,
+    part: question.part || null,
     originalIdx: option.originalIdx,
     en: option.en,
     ur: option.ur
@@ -643,8 +655,8 @@ export default function App() {
         ORDER BY c.name ASC
       `;
       setCourses(data);
-    } catch (err) { 
-      console.error("Fetch assigned courses error:", err); 
+    } catch (err) {
+      console.error("Fetch assigned courses error:", err);
     } finally {
       setIsLoadingData(false);
     }
@@ -745,7 +757,7 @@ export default function App() {
         WHERE school_id = ${SCHOOL_ID} AND role = 'student'
         ORDER BY username ASC
       `;
-      
+
       const studentIds = students.map(s => s.id);
       if (studentIds.length === 0) {
         setAllStudentsData({});
@@ -753,12 +765,14 @@ export default function App() {
       }
 
       const results = await sql`
-        SELECT r.*, u.username, l.order_index as lecture_num, qz.id as quiz_id, qz.title as quiz_title, s.title as section_title
+        SELECT r.*, u.username, l.order_index as lecture_num, qz.id as quiz_id, qz.title as quiz_title,
+               COALESCE(s.id, s2.id) as section_id, COALESCE(s.title, s2.title) as section_title, COALESCE(s.kind, s2.kind) as section_kind
         FROM results r
         JOIN users u ON r.user_id = u.id
         JOIN quizzes qz ON r.quiz_id = qz.id
         LEFT JOIN lectures l ON qz.lecture_id = l.id
         LEFT JOIN sections s ON qz.section_id = s.id
+        LEFT JOIN sections s2 ON l.section_id = s2.id
         WHERE u.school_id = ${SCHOOL_ID}
         ORDER BY r.completed_at ASC
       `;
@@ -766,13 +780,19 @@ export default function App() {
       const allData = {};
       students.forEach(s => allData[s.username] = {});
       results.forEach(r => {
-        allData[r.username][`lecture_${r.lecture_num}`] = {
-          quizId: r.quiz_id,
-          quizTitle: r.quiz_title,
-          lastScore: parseFloat(r.score),
-          completedAt: r.completed_at,
-          answers: typeof r.answers === 'string' ? JSON.parse(r.answers) : r.answers
-        };
+        const key = r.lecture_num != null ? `lecture_${r.lecture_num}` : `section_${r.section_id}`;
+        if (!allData[r.username][key] || r.started_at > allData[r.username][key].completedAt) {
+          allData[r.username][key] = {
+            quizId: r.quiz_id,
+            quizTitle: r.quiz_title,
+            sectionId: r.section_id,
+            sectionTitle: r.section_title,
+            sectionKind: r.section_kind,
+            lastScore: parseFloat(r.score),
+            completedAt: r.completed_at,
+            answers: typeof r.answers === 'string' ? JSON.parse(r.answers) : r.answers
+          };
+        }
       });
       setAllStudentsData(allData);
     } catch (err) { console.error("Fetch all students error:", err); }
@@ -805,7 +825,7 @@ export default function App() {
 
   useEffect(() => {
     if (!isLoggedIn) return;
-    
+
     if (userRole === 'instructor' || userRole === 'admin') {
       if (viewingDetails) return;
       fetchAllStudentsData();
@@ -826,14 +846,14 @@ export default function App() {
     setLoginError('');
     if (studentName.trim().length < 2) return;
     setIsLoggingIn(true);
-    
+
     try {
       const normalizedUsername = studentName.toLowerCase();
       const [user] = await sql`
         SELECT * FROM users 
         WHERE school_id = ${SCHOOL_ID} AND LOWER(username) = ${normalizedUsername}
       `;
-      
+
       if (user && user.password === password) {
         await sql`
           INSERT INTO login_logs (user_id, success) 
@@ -843,7 +863,7 @@ export default function App() {
         setStudentName(user.username);
         setUserRole(user.role);
         setIsLoggedIn(true);
-        
+
         const nextView = user.role === 'student' ? 'student_courses' : user.role === 'instructor' ? 'instructor_courses' : 'admin_dashboard';
         localStorage.setItem(SESSION_KEY, JSON.stringify({
           studentId: user.id,
@@ -1195,8 +1215,8 @@ export default function App() {
         </h2>
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
           {courses.map(course => (
-            <button 
-              key={course.id} 
+            <button
+              key={course.id}
               onClick={() => goToStudentSections(course)}
               className="bg-white p-8 rounded-3xl border border-slate-200 shadow-sm hover:shadow-xl hover:border-emerald-400 text-left transition-all group relative overflow-hidden"
             >
@@ -1282,30 +1302,30 @@ export default function App() {
             const progress = getLectureProgress(lec);
             const palette = progress.status === 'complete'
               ? {
-                  card: 'bg-emerald-50/70 border-emerald-300 hover:border-emerald-500',
-                  number: 'bg-emerald-600 text-white border-emerald-600',
-                  badge: 'bg-emerald-600 text-white',
-                  icon: 'text-emerald-600',
-                  label: 'All Versions Attempted'
-                }
+                card: 'bg-emerald-50/70 border-emerald-300 hover:border-emerald-500',
+                number: 'bg-emerald-600 text-white border-emerald-600',
+                badge: 'bg-emerald-600 text-white',
+                icon: 'text-emerald-600',
+                label: 'All Versions Attempted'
+              }
               : progress.status === 'partial'
                 ? {
-                    card: 'bg-amber-50/70 border-amber-300 hover:border-amber-500',
-                    number: 'bg-amber-500 text-white border-amber-500',
-                    badge: 'bg-amber-500 text-white',
-                    icon: 'text-amber-500',
-                    label: 'Partially Attempted'
-                  }
+                  card: 'bg-amber-50/70 border-amber-300 hover:border-amber-500',
+                  number: 'bg-amber-500 text-white border-amber-500',
+                  badge: 'bg-amber-500 text-white',
+                  icon: 'text-amber-500',
+                  label: 'Partially Attempted'
+                }
                 : {
-                    card: 'bg-red-50/60 border-red-200 hover:border-red-400',
-                    number: 'bg-red-500 text-white border-red-500',
-                    badge: 'bg-red-500 text-white',
-                    icon: 'text-red-500',
-                    label: 'Not Attempted'
-                  };
+                  card: 'bg-red-50/60 border-red-200 hover:border-red-400',
+                  number: 'bg-red-500 text-white border-red-500',
+                  badge: 'bg-red-500 text-white',
+                  icon: 'text-red-500',
+                  label: 'Not Attempted'
+                };
             return (
-              <button 
-                key={lec.id} 
+              <button
+                key={lec.id}
                 onClick={() => goToStudentQuizzes(lec)}
                 className={`p-5 rounded-2xl border shadow-sm hover:shadow-md text-left transition-all group flex flex-col gap-4 ${palette.card}`}
               >
@@ -1358,26 +1378,26 @@ export default function App() {
             const isExam = selectedSection?.kind === 'exam';
             const palette = isExam
               ? {
-                  card: 'border-indigo-200 hover:border-indigo-500',
-                  icon: 'bg-indigo-50 text-indigo-600 group-hover:bg-indigo-600 group-hover:text-white',
-                  accent: 'text-indigo-600',
-                  badge: 'bg-indigo-100 text-indigo-700',
-                  latest: 'text-indigo-600',
-                  start: 'bg-indigo-600 hover:bg-indigo-700',
-                  hoverText: 'hover:text-indigo-600 hover:bg-indigo-50'
-                }
+                card: 'border-indigo-200 hover:border-indigo-500',
+                icon: 'bg-indigo-50 text-indigo-600 group-hover:bg-indigo-600 group-hover:text-white',
+                accent: 'text-indigo-600',
+                badge: 'bg-indigo-100 text-indigo-700',
+                latest: 'text-indigo-600',
+                start: 'bg-indigo-600 hover:bg-indigo-700',
+                hoverText: 'hover:text-indigo-600 hover:bg-indigo-50'
+              }
               : {
-                  card: 'border-slate-100 hover:border-emerald-500',
-                  icon: 'bg-emerald-50 text-emerald-600 group-hover:bg-emerald-600 group-hover:text-white',
-                  accent: 'text-emerald-600',
-                  badge: 'bg-slate-50 text-slate-400',
-                  latest: 'text-emerald-600',
-                  start: 'bg-slate-900 hover:bg-black',
-                  hoverText: 'hover:text-emerald-600 hover:bg-emerald-50'
-                };
+                card: 'border-slate-100 hover:border-emerald-500',
+                icon: 'bg-emerald-50 text-emerald-600 group-hover:bg-emerald-600 group-hover:text-white',
+                accent: 'text-emerald-600',
+                badge: 'bg-slate-50 text-slate-400',
+                latest: 'text-emerald-600',
+                start: 'bg-slate-900 hover:bg-black',
+                hoverText: 'hover:text-emerald-600 hover:bg-emerald-50'
+              };
             return (
-              <div 
-                key={quiz.id} 
+              <div
+                key={quiz.id}
                 className={`bg-white p-6 rounded-3xl border-2 shadow-sm hover:shadow-xl text-left transition-all group relative ${palette.card}`}
               >
                 <div className="flex items-start justify-between mb-4">
@@ -1484,6 +1504,13 @@ export default function App() {
                     <div className="flex justify-between items-start gap-4 mb-6">
                       <span className={`w-8 h-8 rounded-xl shadow-sm flex items-center justify-center font-black text-xs shrink-0 ${isCorrect ? 'bg-emerald-500 text-white' : 'bg-red-500 text-white'}`}>{idx + 1}</span>
                       <div className="text-right flex-1">
+                        {q.part && (
+                          <div className="text-left mb-2">
+                            <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold bg-emerald-100 text-emerald-800 border border-emerald-200">
+                              {q.part}
+                            </span>
+                          </div>
+                        )}
                         <p className="font-bold text-xl mb-2 text-slate-800">{q.qEn}</p>
                         <p dir="rtl" className="font-urdu text-2xl text-emerald-800">{q.qUr}</p>
                       </div>
@@ -1512,7 +1539,7 @@ export default function App() {
 
   const QuizTaking = () => {
     const { questions, currentIndex, showResult, score } = quizState;
-    
+
     if (showResult) return (
       <div className="h-screen bg-slate-50 flex items-center justify-center p-4 overflow-y-auto">
         <div className="bg-white w-full max-w-md rounded-3xl shadow-2xl p-6 sm:p-10 text-center border border-slate-100 relative overflow-hidden my-auto">
@@ -1528,16 +1555,16 @@ export default function App() {
 
           <div className="p-6 sm:p-8 bg-slate-50 rounded-2xl sm:rounded-[2rem] border border-slate-100 mb-6 sm:mb-8">
             <p className="text-slate-400 uppercase text-[11px] font-black tracking-[0.2em] mb-2">Final Performance</p>
-            <div className="text-6xl sm:text-7xl font-black text-emerald-600 tabular-nums">{Math.round((score/questions.length)*100)}%</div>
+            <div className="text-6xl sm:text-7xl font-black text-emerald-600 tabular-nums">{Math.round((score / questions.length) * 100)}%</div>
             <div className="flex items-center justify-center gap-4 mt-5 text-slate-400 text-sm font-bold">
               <span className="flex items-center gap-1"><CheckCircle2 size={14} className="text-emerald-500" /> {score} Correct</span>
               <span className="w-1 h-1 bg-slate-300 rounded-full"></span>
               <span className="flex items-center gap-1"><XCircle size={14} className="text-red-400" /> {questions.length - score} Wrong</span>
             </div>
           </div>
-          
+
           <div className="grid gap-3">
-            <button 
+            <button
               onClick={() => {
                 openResultDetails({
                   quizId: selectedQuiz.id,
@@ -1549,22 +1576,22 @@ export default function App() {
                   }
                 });
                 navigateTo('student_quizzes');
-              }} 
+              }}
               className="w-full bg-emerald-600 text-white font-black py-5 rounded-2xl shadow-xl hover:bg-emerald-700 transition-all active:scale-95"
             >
               Review Answers
             </button>
-            <button 
-              onClick={() => startTakingQuiz(selectedQuiz)} 
+            <button
+              onClick={() => startTakingQuiz(selectedQuiz)}
               className="w-full bg-slate-900 text-white font-black py-5 rounded-2xl shadow-xl hover:bg-black transition-all active:scale-95"
             >
               Retry Quiz
             </button>
-            <button 
+            <button
               onClick={() => {
                 setQuizState({ active: false, questions: [], currentIndex: 0, score: 0, showResult: false, answers: [] });
                 navigateTo('student_quizzes');
-              }} 
+              }}
               className="w-full bg-white text-slate-500 font-bold py-4 rounded-2xl hover:bg-slate-50 transition-all"
             >
               Back to Lectures
@@ -1595,29 +1622,29 @@ export default function App() {
           <main className="flex-1 max-w-6xl mx-auto w-full px-6 py-12">
             <div className="bg-white rounded-[2.5rem] shadow-sm border border-slate-100 p-8 md:p-12">
               <h2 className="text-2xl font-black text-slate-800 mb-8">Edit Question</h2>
-              
+
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
                 {/* LEFT SIDE: FORM */}
                 <div className="space-y-6">
                   <div className="space-y-4">
                     <div>
                       <label className="text-[10px] font-black uppercase text-slate-400 ml-2">Question (English)</label>
-                      <input 
-                        type="text" 
-                        value={editQuestionEn} 
-                        onChange={(e) => setEditQuestionEn(e.target.value)} 
-                        className="w-full p-4 rounded-xl border bg-slate-50 outline-none focus:ring-2 focus:ring-emerald-500 font-bold" 
+                      <input
+                        type="text"
+                        value={editQuestionEn}
+                        onChange={(e) => setEditQuestionEn(e.target.value)}
+                        className="w-full p-4 rounded-xl border bg-slate-50 outline-none focus:ring-2 focus:ring-emerald-500 font-bold"
                       />
                     </div>
-                    
+
                     <div>
                       <label className="text-[10px] font-black uppercase text-slate-400 ml-2">Question (Urdu)</label>
-                      <input 
-                        type="text" 
+                      <input
+                        type="text"
                         dir="rtl"
-                        value={editQuestionUr} 
-                        onChange={(e) => setEditQuestionUr(e.target.value)} 
-                        className="w-full p-4 rounded-xl border bg-slate-50 outline-none focus:ring-2 focus:ring-emerald-500 font-urdu font-bold text-xl text-emerald-850" 
+                        value={editQuestionUr}
+                        onChange={(e) => setEditQuestionUr(e.target.value)}
+                        className="w-full p-4 rounded-xl border bg-slate-50 outline-none focus:ring-2 focus:ring-emerald-500 font-urdu font-bold text-xl text-emerald-850"
                       />
                     </div>
 
@@ -1633,36 +1660,36 @@ export default function App() {
                             {idx + 1}
                           </label>
                           <div className="flex-1 grid grid-cols-1 md:grid-cols-2 gap-3">
-                            <input 
-                              type="text" 
-                              placeholder="Option (English)" 
-                              value={opt.en} 
+                            <input
+                              type="text"
+                              placeholder="Option (English)"
+                              value={opt.en}
                               onChange={(e) => {
                                 const newOpts = [...editOptions];
                                 newOpts[idx] = { ...newOpts[idx], en: e.target.value };
                                 setEditOptions(newOpts);
-                              }} 
-                              className="w-full p-3 rounded-xl border bg-white outline-none focus:ring-2 focus:ring-emerald-500 font-bold text-sm" 
+                              }}
+                              className="w-full p-3 rounded-xl border bg-white outline-none focus:ring-2 focus:ring-emerald-500 font-bold text-sm"
                             />
-                            <input 
-                              type="text" 
+                            <input
+                              type="text"
                               dir="rtl"
-                              placeholder="Option (Urdu)" 
-                              value={opt.ur} 
+                              placeholder="Option (Urdu)"
+                              value={opt.ur}
                               onChange={(e) => {
                                 const newOpts = [...editOptions];
                                 newOpts[idx] = { ...newOpts[idx], ur: e.target.value };
                                 setEditOptions(newOpts);
-                              }} 
-                              className="w-full p-3 rounded-xl border bg-white outline-none focus:ring-2 focus:ring-emerald-500 font-urdu font-bold text-base text-emerald-800" 
+                              }}
+                              className="w-full p-3 rounded-xl border bg-white outline-none focus:ring-2 focus:ring-emerald-500 font-urdu font-bold text-base text-emerald-800"
                             />
                           </div>
-                          <input 
-                            type="radio" 
-                            name="correct-opt" 
+                          <input
+                            type="radio"
+                            name="correct-opt"
                             checked={Number(editCorrectIndex) === idx}
                             onChange={() => setEditCorrectIndex(idx)}
-                            className="w-5 h-5 accent-emerald-600 cursor-pointer shrink-0" 
+                            className="w-5 h-5 accent-emerald-600 cursor-pointer shrink-0"
                           />
                         </div>
                       ))}
@@ -1695,18 +1722,18 @@ export default function App() {
 
               {/* BUTTONS */}
               <div className="flex justify-end gap-3 pt-6 border-t mt-8">
-                <button 
-                  type="button" 
+                <button
+                  type="button"
                   disabled={isSavingQuestion}
-                  onClick={() => setIsEditingQuestion(false)} 
+                  onClick={() => setIsEditingQuestion(false)}
                   className="px-6 py-3 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-xl font-bold text-sm transition-colors"
                 >
                   Cancel
                 </button>
-                <button 
-                  type="button" 
+                <button
+                  type="button"
                   disabled={isSavingQuestion}
-                  onClick={handleSaveQuestion} 
+                  onClick={handleSaveQuestion}
                   className="px-8 py-3 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl font-black text-sm transition-colors flex items-center gap-2"
                 >
                   {isSavingQuestion ? (
@@ -1731,29 +1758,66 @@ export default function App() {
     const q = questions[currentIndex];
     const progress = ((currentIndex + 1) / questions.length) * 100;
     const isExam = selectedSection?.kind === 'exam';
+
+    // Extract unique quiz parts in order of appearance with their question indices
+    const quizParts = React.useMemo(() => {
+      if (!questions || !Array.isArray(questions)) return [];
+      const partMap = new Map();
+      questions.forEach((item, idx) => {
+        const rawPart = (item.part || '').trim();
+        if (rawPart) {
+          if (!partMap.has(rawPart)) {
+            partMap.set(rawPart, {
+              name: rawPart,
+              firstIndex: idx,
+              indices: [idx],
+              count: 1
+            });
+          } else {
+            const entry = partMap.get(rawPart);
+            entry.indices.push(idx);
+            entry.count += 1;
+          }
+        }
+      });
+      return Array.from(partMap.values());
+    }, [questions]);
+
+    const currentPartName = (q?.part || '').trim();
+    const activeTabRef = useRef(null);
+
+    useEffect(() => {
+      if (activeTabRef.current) {
+        activeTabRef.current.scrollIntoView({
+          behavior: 'smooth',
+          block: 'nearest',
+          inline: 'center'
+        });
+      }
+    }, [currentPartName]);
     const examPalette = isExam
       ? {
-          qUr: 'text-indigo-700',
-          progress: 'bg-indigo-500',
-          next: 'bg-indigo-600 hover:bg-indigo-700',
-          selected: 'border-indigo-500 bg-indigo-50',
-          option: 'hover:border-indigo-500',
-          selectedText: 'text-indigo-700',
-          optionText: 'group-hover:text-indigo-700',
-          urText: 'text-indigo-600',
-          finishBorder: 'border-indigo-200',
-        }
+        qUr: 'text-indigo-700',
+        progress: 'bg-indigo-500',
+        next: 'bg-indigo-600 hover:bg-indigo-700',
+        selected: 'border-indigo-500 bg-indigo-50',
+        option: 'hover:border-indigo-500',
+        selectedText: 'text-indigo-700',
+        optionText: 'group-hover:text-indigo-700',
+        urText: 'text-indigo-600',
+        finishBorder: 'border-indigo-200',
+      }
       : {
-          qUr: 'text-emerald-700',
-          progress: 'bg-emerald-500',
-          next: 'bg-emerald-600 hover:bg-emerald-700',
-          selected: 'border-emerald-500 bg-emerald-50',
-          option: 'hover:border-emerald-500',
-          selectedText: 'text-emerald-700',
-          optionText: 'group-hover:text-emerald-700',
-          urText: 'text-emerald-600',
-          finishBorder: 'border-slate-100',
-        };
+        qUr: 'text-emerald-700',
+        progress: 'bg-emerald-500',
+        next: 'bg-emerald-600 hover:bg-emerald-700',
+        selected: 'border-emerald-500 bg-emerald-50',
+        option: 'hover:border-emerald-500',
+        selectedText: 'text-emerald-700',
+        optionText: 'group-hover:text-emerald-700',
+        urText: 'text-emerald-600',
+        finishBorder: 'border-slate-100',
+      };
 
     return (
       <div className="h-screen bg-slate-50 flex flex-col overflow-hidden">
@@ -1772,8 +1836,8 @@ export default function App() {
             </div>
           </div>
           <div className="flex items-center gap-4">
-            <button 
-              onClick={handleEditQuizClick} 
+            <button
+              onClick={handleEditQuizClick}
               className="flex items-center gap-2 px-3.5 py-2 bg-amber-50 hover:bg-amber-100 text-amber-700 rounded-xl border border-amber-200 transition-colors font-bold text-xs animate-pulse"
             >
               <Edit2 size={14} />
@@ -1788,6 +1852,71 @@ export default function App() {
         <main className="flex-1 w-full flex flex-col max-w-3xl mx-auto px-4 sm:px-6 py-4 md:py-6 min-h-0">
           <div className="bg-white rounded-2xl sm:rounded-3xl shadow-sm border border-slate-100 overflow-hidden flex flex-col flex-1 min-h-0">
             <div className="px-5 py-4 md:px-8 md:py-5 text-center border-b border-slate-50 shrink-0">
+              {quizParts.length > 0 ? (
+                <div className="mb-4">
+                  <div className="inline-flex items-center gap-1.5 p-1 bg-slate-100/90 rounded-2xl max-w-full overflow-x-auto scrollbar-none border border-slate-200/60 shadow-inner">
+                    {quizParts.map((part) => {
+                      const isActive = currentPartName === part.name;
+                      const isCompleted = part.indices.every(idx => idx < currentIndex);
+                      const partCurrentNum = part.indices.indexOf(currentIndex) + 1;
+
+                      return (
+                        <button
+                          key={`${part.name}-${isActive ? 'active' : 'inactive'}`}
+                          ref={isActive ? activeTabRef : null}
+                          type="button"
+                          onClick={() => {
+                            if (part.firstIndex !== currentIndex) {
+                              setQuizState(prev => ({ ...prev, currentIndex: part.firstIndex }));
+                            }
+                          }}
+                          title={`Go to ${part.name} (Question ${part.firstIndex + 1})`}
+                          className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition-all duration-300 shrink-0 select-none cursor-pointer ${
+                            isActive
+                              ? isExam
+                                ? 'bg-indigo-600 text-white shadow-md shadow-indigo-600/30 ring-2 ring-indigo-400 ring-offset-1 animate-exam-part-active'
+                                : 'bg-emerald-600 text-white shadow-md shadow-emerald-600/30 ring-2 ring-emerald-400 ring-offset-1 animate-part-active'
+                              : isCompleted
+                              ? 'bg-white/80 text-emerald-700 hover:bg-white border border-emerald-200/60 shadow-xs'
+                              : 'text-slate-500 hover:text-slate-700 hover:bg-white/50 border border-transparent'
+                          }`}
+                        >
+                          {isActive ? (
+                            <span className="relative flex h-2 w-2 mr-0.5 shrink-0">
+                              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-white opacity-75"></span>
+                              <span className="relative inline-flex rounded-full h-2 w-2 bg-white"></span>
+                            </span>
+                          ) : isCompleted ? (
+                            <CheckCircle2 size={13} className="text-emerald-600 stroke-[2.5] shrink-0" />
+                          ) : (
+                            <span className="w-1.5 h-1.5 rounded-full bg-slate-300 shrink-0"></span>
+                          )}
+
+                          <span className="truncate max-w-[140px] sm:max-w-none">{part.name}</span>
+
+                          <span
+                            className={`text-[10px] px-1.5 py-0.5 rounded-full font-bold tabular-nums ${
+                              isActive
+                                ? 'bg-white/25 text-white'
+                                : isCompleted
+                                ? 'bg-emerald-100/80 text-emerald-800'
+                                : 'bg-slate-200/70 text-slate-500'
+                            }`}
+                          >
+                            {isActive && partCurrentNum > 0 ? `${partCurrentNum}/${part.count}` : part.count}
+                          </span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              ) : q.part ? (
+                <div className="mb-2">
+                  <span className="inline-flex items-center px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wider bg-emerald-100 text-emerald-800 border border-emerald-200 shadow-xs">
+                    {q.part}
+                  </span>
+                </div>
+              ) : null}
               <h2 className="text-lg sm:text-2xl md:text-[1.7rem] font-bold mb-3 text-slate-800 leading-snug">{q.qEn}</h2>
               <h2 dir="rtl" className={`text-xl sm:text-2xl md:text-3xl font-bold font-urdu leading-relaxed ${examPalette.qUr}`}>{q.qUr}</h2>
             </div>
@@ -1799,11 +1928,10 @@ export default function App() {
                     key={opt.originalIdx ?? opt.en}
                     type="button"
                     onClick={() => selectAnswer(opt, { persistQuizId: selectedQuiz?.id })}
-                    className={`w-full px-4 py-3 md:p-4 bg-white border-2 rounded-xl md:rounded-2xl text-left flex flex-col md:flex-row md:items-center justify-between group transition-all ${
-                      selected
+                    className={`w-full px-4 py-3 md:p-4 bg-white border-2 rounded-xl md:rounded-2xl text-left flex flex-col md:flex-row md:items-center justify-between group transition-all ${selected
                         ? `${examPalette.selected} shadow-md`
                         : `border-slate-100 ${examPalette.option} hover:shadow-md`
-                    }`}
+                      }`}
                   >
                     <span className={`text-base md:text-lg font-bold ${selected ? examPalette.selectedText : `text-slate-700 ${examPalette.optionText}`}`}>{opt.en}</span>
                     <span dir="rtl" className={`text-lg md:text-xl font-bold font-urdu mt-1 md:mt-0 ${examPalette.urText}`}>{opt.ur}</span>
@@ -1837,30 +1965,30 @@ export default function App() {
             <div className="bg-white w-full max-w-md rounded-3xl shadow-2xl p-8 border border-slate-100">
               <h3 className="text-xl font-black text-slate-800 mb-2">Instructor Verification</h3>
               <p className="text-slate-500 text-sm mb-6">Please enter the instructor password to edit this question.</p>
-              
+
               <form onSubmit={handlePasswordSubmit}>
-                <input 
-                  type="password" 
-                  placeholder="Password" 
-                  required 
+                <input
+                  type="password"
+                  placeholder="Password"
+                  required
                   autoFocus
                   className="w-full p-4 rounded-xl border bg-slate-50 outline-none focus:ring-2 focus:ring-emerald-500 font-bold mb-4"
-                  value={promptPasswordValue} 
-                  onChange={(e) => setPromptPasswordValue(e.target.value)} 
+                  value={promptPasswordValue}
+                  onChange={(e) => setPromptPasswordValue(e.target.value)}
                 />
                 {promptError && (
                   <p className="text-red-500 text-sm font-bold mb-4">{promptError}</p>
                 )}
                 <div className="flex justify-end gap-3">
-                  <button 
-                    type="button" 
-                    onClick={() => setPasswordPromptOpen(false)} 
+                  <button
+                    type="button"
+                    onClick={() => setPasswordPromptOpen(false)}
                     className="px-4 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-xl font-bold text-sm transition-colors"
                   >
                     Cancel
                   </button>
-                  <button 
-                    type="submit" 
+                  <button
+                    type="submit"
                     className="px-5 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl font-black text-sm transition-colors"
                   >
                     Verify
@@ -1878,25 +2006,30 @@ export default function App() {
     <div className="min-h-screen bg-slate-50">
       <Header title="Instructor Portal" />
       <nav className="bg-white border-b px-6 flex items-center gap-8 h-14 overflow-x-auto whitespace-nowrap">
-        <button 
-          onClick={() => setInstructorView('courses')} 
+        <button
+          onClick={() => setInstructorView('courses')}
           className={`h-full px-2 flex items-center gap-2 font-bold text-sm transition-all border-b-2 ${instructorView === 'courses' ? 'border-emerald-600 text-emerald-600' : 'border-transparent text-slate-400 hover:text-slate-600'}`}
         >
           <Book size={18} /> Courses
         </button>
-        <button 
-          onClick={() => { 
-            setInstructorView('results'); 
-            setSelectedQuiz(null); 
-            setSelectedQuizTitle(null); 
-            fetchAllStudentsData(); 
-          }} 
+        <button
+          onClick={() => {
+            setInstructorView('results');
+            setSelectedQuiz(null);
+            setSelectedQuizTitle(null);
+            fetchAllStudentsData();
+            const course = courses[0] || selectedCourse;
+            if (course?.id) {
+              fetchSections(course.id, true);
+              fetchLectures(course.id);
+            }
+          }}
           className={`h-full px-2 flex items-center gap-2 font-bold text-sm transition-all border-b-2 ${instructorView === 'results' ? 'border-emerald-600 text-emerald-600' : 'border-transparent text-slate-400 hover:text-slate-600'}`}
         >
           <PieChart size={18} /> Student Results
         </button>
-        <button 
-          onClick={() => setInstructorView('users')} 
+        <button
+          onClick={() => setInstructorView('users')}
           className={`h-full px-2 flex items-center gap-2 font-bold text-sm transition-all border-b-2 ${instructorView === 'users' ? 'border-emerald-600 text-emerald-600' : 'border-transparent text-slate-400 hover:text-slate-600'}`}
         >
           <Users size={18} /> Manage Users
@@ -1917,12 +2050,12 @@ export default function App() {
                   <button 
                     onClick={() => { 
                       setSelectedCourse(course); 
-                      setInstructorView('course_quizzes'); 
-                      fetchCourseQuizzes(course.id); 
+                      setInstructorView('course_sections'); 
+                      fetchSections(course.id, true); 
                     }}
                     className="flex items-center justify-center gap-2 bg-emerald-600 text-white text-xs font-bold py-3 rounded-xl hover:bg-emerald-700 transition-all w-full"
                   >
-                    View Quizzes Section
+                    View Sections & Quizzes
                   </button>
                 </div>
               </div>
@@ -1930,14 +2063,14 @@ export default function App() {
           </div>
         )}
 
-        {instructorView === 'course_quizzes' && (
+        {instructorView === 'course_sections' && (
           <div className="grid gap-4">
             <div className="flex items-center justify-between mb-6">
               <div className="flex items-center gap-3">
                 <button onClick={() => setInstructorView('courses')} className="p-2 hover:bg-slate-100 rounded-lg text-slate-400 transition-colors"><ArrowLeft size={20} /></button>
-                <h3 className="font-black text-2xl text-slate-800">Quizzes Section: {selectedCourse?.name}</h3>
+                <h3 className="font-black text-2xl text-slate-800">Sections: {selectedCourse?.name}</h3>
               </div>
-              <button 
+              <button
                 onClick={() => { setInstructorView('lectures'); fetchSections(selectedCourse.id, true); }}
                 className="flex items-center gap-2 bg-slate-900 text-white px-4 py-2 rounded-xl text-xs font-bold hover:bg-black transition-all"
               >
@@ -1945,11 +2078,69 @@ export default function App() {
               </button>
             </div>
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+              {sections.map(section => {
+                const isExam = section.kind === 'exam';
+                const palette = isExam
+                  ? { card: 'bg-indigo-50/70 border-indigo-300 hover:border-indigo-500', icon: 'bg-indigo-600 text-white', badge: 'bg-indigo-600 text-white', accent: 'text-indigo-600' }
+                  : { card: 'bg-white border-slate-200 hover:border-emerald-400', icon: 'bg-emerald-600 text-white', badge: 'bg-emerald-600 text-white', accent: 'text-emerald-600' };
+                return (
+                  <button
+                    key={section.id}
+                    onClick={() => { setSelectedSection(section); setInstructorView('course_quizzes'); fetchCourseQuizzes(selectedCourse.id, section.id); }}
+                    className={`p-6 rounded-3xl border shadow-sm hover:shadow-md text-left transition-all group flex flex-col gap-4 ${palette.card}`}
+                  >
+                    <div className="flex items-center justify-between">
+                      <div className={`w-12 h-12 rounded-2xl flex items-center justify-center font-black text-xl ${palette.icon}`}>
+                        {section.order_index}
+                      </div>
+                      <ChevronRight className={`${palette.accent} shrink-0`} />
+                    </div>
+                    <div>
+                      <div className="flex items-center gap-2 mb-1">
+                        <h4 className="font-black text-lg text-slate-800">{section.title}</h4>
+                        <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase tracking-widest ${palette.badge}`}>
+                          {isExam ? 'Exam' : 'Section'}
+                        </span>
+                      </div>
+                      <p className="text-sm font-bold text-slate-500">{isExam ? 'Cumulative assessment' : 'Daily lessons and quizzes'}</p>
+                    </div>
+                  </button>
+                );
+              })}
+              {sections.length === 0 && (
+                <div className="col-span-full py-12 text-center bg-slate-100 rounded-3xl border-2 border-dashed border-slate-200">
+                  <p className="text-slate-400 font-bold">No sections available for this course yet.</p>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
+        {instructorView === 'course_quizzes' && (
+          <div className="grid gap-4">
+            <div className="flex items-center justify-between mb-6">
+              <div className="flex items-center gap-3">
+                <button onClick={() => setInstructorView('course_sections')} className="p-2 hover:bg-slate-100 rounded-lg text-slate-400 transition-colors"><ArrowLeft size={20} /></button>
+                <h3 className="font-black text-2xl text-slate-800">Quizzes: {selectedCourse?.name} / {selectedSection?.title}</h3>
+              </div>
+              <button
+                onClick={() => { setInstructorView('lectures'); fetchSections(selectedCourse.id, true); }}
+                className="flex items-center gap-2 bg-slate-900 text-white px-4 py-2 rounded-xl text-xs font-bold hover:bg-black transition-all"
+              >
+                <Settings size={16} /> Manage Content
+              </button>
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+              {courseQuizzes.length === 0 && (
+                <div className="col-span-full py-12 text-center bg-slate-100 rounded-3xl border-2 border-dashed border-slate-200">
+                  <p className="text-slate-400 font-bold">No quizzes available for this section.</p>
+                </div>
+              )}
               {Array.from(new Set(courseQuizzes.map(q => q.title))).map(title => {
                 const quizGroup = courseQuizzes.find(q => q.title === title);
                 const versionsCount = courseQuizzes.filter(q => q.title === title).length;
                 return (
-                  <button 
+                  <button
                     key={title}
                     onClick={() => { setSelectedQuizTitle(title); setInstructorView('quiz_versions'); }}
                     className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm hover:shadow-md hover:border-emerald-300 text-left transition-all group"
@@ -1958,7 +2149,9 @@ export default function App() {
                       <ClipboardList size={24} />
                     </div>
                     <h4 className="font-bold text-lg text-slate-800 mb-1">{title}</h4>
-                    <p className="text-slate-400 text-xs mb-4">{quizGroup.section_kind === 'exam' ? `Section: ${quizGroup.section_title}` : `Lecture ${quizGroup.lecture_order}: ${quizGroup.lecture_title}`}</p>
+                    <p className="text-slate-400 text-xs mb-4">
+                      {selectedSection?.kind === 'exam' ? 'Cumulative assessment' : `Lecture ${quizGroup.lecture_order}: ${quizGroup.lecture_title}`}
+                    </p>
                     <div className="flex items-center justify-between mt-4 pt-4 border-t border-slate-50">
                       <span className="text-xs font-bold text-slate-400">{versionsCount} Versions Available</span>
                       <ChevronRight size={18} className="text-slate-300 group-hover:text-emerald-500" />
@@ -1966,11 +2159,6 @@ export default function App() {
                   </button>
                 );
               })}
-              {courseQuizzes.length === 0 && (
-                <div className="col-span-full py-12 text-center bg-slate-100 rounded-3xl border-2 border-dashed border-slate-200">
-                  <p className="text-slate-400 font-bold">No quizzes available for this course.</p>
-                </div>
-              )}
             </div>
           </div>
         )}
@@ -1982,7 +2170,7 @@ export default function App() {
               <h3 className="font-black text-2xl text-slate-800">Versions for: {selectedQuizTitle}</h3>
             </div>
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-              <button 
+              <button
                 onClick={() => {
                   const baseQuiz = courseQuizzes.filter(q => q.title === selectedQuizTitle).sort((a, b) => b.version - a.version)[0];
                   handleAiGenerateVersion(baseQuiz);
@@ -1999,11 +2187,11 @@ export default function App() {
                 </div>
               </button>
               {courseQuizzes.filter(q => q.title === selectedQuizTitle).map(quiz => (
-                <button 
+                <button
                   key={quiz.id}
-                  onClick={() => { 
-                    setSelectedQuiz(quiz); 
-                    setInstructorView('results'); 
+                  onClick={() => {
+                    setSelectedQuiz(quiz);
+                    setInstructorView('results');
                     fetchSpecificQuizResults(quiz.id);
                   }}
                   className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm hover:shadow-md hover:border-emerald-300 text-left transition-all group"
@@ -2031,7 +2219,7 @@ export default function App() {
               </div>
               <button onClick={() => selectedQuiz ? fetchSpecificQuizResults(selectedQuiz.id) : fetchAllStudentsData()} className="p-2 text-emerald-600 hover:bg-emerald-50 rounded-lg transition-all"><Search size={20} /></button>
             </div>
-            
+
             {selectedQuiz ? (
               <div className="bg-white rounded-3xl border border-slate-200 overflow-hidden shadow-sm">
                 <table className="w-full text-left">
@@ -2054,7 +2242,7 @@ export default function App() {
                         </td>
                         <td className="px-6 py-4 text-xs text-slate-400">{formatRelativeTime(res.completed_at)}</td>
                         <td className="px-6 py-4">
-                          <button 
+                          <button
                             onClick={async () => {
                               await openResultDetails({
                                 quizId: selectedQuiz.id,
@@ -2080,38 +2268,89 @@ export default function App() {
                 </table>
               </div>
             ) : (
-              Object.keys(allStudentsData).filter(n => n.toLowerCase() !== 'instructor').map(name => (
-                <div key={name} className="bg-white rounded-2xl border border-slate-200 overflow-hidden shadow-sm">
-                  <div className="bg-slate-50 px-6 py-3 font-bold text-slate-700 flex justify-between items-center border-b">
-                    <span>{name}</span>
-                    <span className="text-[10px] text-slate-400 uppercase tracking-widest font-black">Student Record</span>
+              Object.keys(allStudentsData).filter(n => n.toLowerCase() !== 'instructor').map(name => {
+                const record = allStudentsData[name];
+                const sectionsWithData = sections.filter(sec => Object.keys(record).some(k => k.startsWith('section_') || k.startsWith('lecture_')));
+                const hasAny = Object.keys(record).some(k => k.startsWith('section_') || k.startsWith('lecture_'));
+                return (
+                  <div key={name} className="bg-white rounded-2xl border border-slate-200 overflow-hidden shadow-sm">
+                    <div className="bg-slate-50 px-6 py-3 font-bold text-slate-700 flex justify-between items-center border-b">
+                      <span>{name}</span>
+                      <span className="text-[10px] text-slate-400 uppercase tracking-widest font-black">
+                        {hasAny ? 'Student Record' : 'No Attempts Yet'}
+                      </span>
+                    </div>
+                    <div className="p-4 space-y-5">
+                      {sectionsWithData.length === 0 && (
+                        <p className="text-sm text-slate-400 font-bold">No quiz attempts recorded yet.</p>
+                      )}
+                      {sectionsWithData.map(sec => {
+                        const isExam = sec.kind === 'exam';
+                        const tileBase = isExam
+                          ? 'bg-indigo-50 border-indigo-200'
+                          : 'bg-emerald-50 border-emerald-200';
+                        const lectureTiles = lectures.filter(l => l.section_id === sec.id);
+                        const examTiles = isExam
+                          ? Object.entries(record).filter(([k]) => k.startsWith('section_')).map(([, d]) => d)
+                          : [];
+                        return (
+                          <div key={sec.id}>
+                            <div className={`flex items-center gap-2 mb-3 pb-2 border-b ${isExam ? 'text-indigo-700 border-indigo-100' : 'text-emerald-700 border-emerald-100'}`}>
+                              <span className={`text-[10px] font-black uppercase tracking-widest px-2 py-0.5 rounded ${isExam ? 'bg-indigo-100 text-indigo-700' : 'bg-emerald-100 text-emerald-700'}`}>
+                                {sec.title}
+                              </span>
+                              <span className="text-[10px] font-black uppercase tracking-widest text-slate-400">{isExam ? 'Exam' : 'Section'}</span>
+                            </div>
+                            <div className="flex flex-wrap gap-3">
+                              {!isExam && lectureTiles.map(lec => {
+                                const d = record[`lecture_${lec.order_index}`];
+                                return (
+                                  <button
+                                    key={lec.id}
+                                    onClick={async () => {
+                                      if (d) {
+                                        await openResultDetails({
+                                          quizId: d.quizId,
+                                          studentName: name,
+                                          lectureNum: lec.order_index,
+                                          sectionTitle: d.sectionTitle,
+                                          data: d
+                                        });
+                                      }
+                                    }}
+                                    className={`min-w-[100px] p-3 rounded-xl border text-center transition-all ${d ? `${tileBase} hover:scale-105` : 'bg-slate-50 border-slate-100 opacity-40 cursor-default'}`}
+                                  >
+                                    <div className="text-[9px] font-black uppercase text-slate-400">Lec {lec.order_index}</div>
+                                    <div className="text-lg font-black text-slate-700">{d ? `${Math.round(d.lastScore)}%` : '--'}</div>
+                                  </button>
+                                );
+                              })}
+                              {isExam && examTiles.map((d, i) => (
+                                <button
+                                  key={i}
+                                  onClick={async () => {
+                                    await openResultDetails({
+                                      quizId: d.quizId,
+                                      studentName: name,
+                                      lectureNum: d.quizTitle,
+                                      sectionTitle: d.sectionTitle,
+                                      data: d
+                                    });
+                                  }}
+                                  className={`min-w-[100px] p-3 rounded-xl border text-center transition-all ${tileBase} hover:scale-105`}
+                                >
+                                  <div className="text-[9px] font-black uppercase text-slate-400">{d.quizTitle?.slice(0, 20)}</div>
+                                  <div className="text-lg font-black text-slate-700">{Math.round(d.lastScore)}%</div>
+                                </button>
+                              ))}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
                   </div>
-                  <div className="p-4 flex flex-wrap gap-3">
-                    {lectures.map(lec => {
-                      const d = allStudentsData[name][`lecture_${lec.order_index}`];
-                      return (
-                        <button 
-                          key={lec.id} 
-                          onClick={async () => {
-                            if (d) {
-                              await openResultDetails({
-                                quizId: d.quizId,
-                                studentName: name,
-                                lectureNum: lec.order_index,
-                                data: d
-                              });
-                            }
-                          }}
-                          className={`min-w-[100px] p-3 rounded-xl border text-center transition-all ${d ? 'bg-emerald-50 border-emerald-200 hover:scale-105' : 'bg-slate-50 border-slate-100 opacity-40 cursor-default'}`}
-                        >
-                          <div className="text-[9px] font-black uppercase text-slate-400">Lec {lec.order_index}</div>
-                          <div className="text-lg font-black text-slate-700">{d ? `${Math.round(d.lastScore)}%` : '--'}</div>
-                        </button>
-                      );
-                    })}
-                  </div>
-                </div>
-              ))
+                );
+              })
             )}
           </div>
         )}
@@ -2208,7 +2447,7 @@ export default function App() {
                         <p className="text-slate-400 text-xs">Lecture content and assessments</p>
                       </div>
                     </div>
-                    <button 
+                    <button
                       onClick={() => { setSelectedLecture(lec); setInstructorView('quizzes'); fetchQuizzes(lec.id); }}
                       className="bg-slate-900 text-white px-4 py-2 rounded-xl text-xs font-bold hover:bg-black transition-all"
                     >
@@ -2288,15 +2527,15 @@ export default function App() {
               <form onSubmit={handleAddUser} className="grid grid-cols-1 md:grid-cols-4 gap-4">
                 <div className="space-y-1">
                   <label className="text-[10px] font-black uppercase text-slate-400 ml-2">Username</label>
-                  <input type="text" placeholder="e.g. asif_student" className="w-full p-3.5 rounded-2xl border border-slate-100 bg-slate-50 outline-none focus:ring-2 focus:ring-emerald-500 transition-all font-medium" value={newUser.username} onChange={(e) => setNewUser({...newUser, username: e.target.value})} />
+                  <input type="text" placeholder="e.g. asif_student" className="w-full p-3.5 rounded-2xl border border-slate-100 bg-slate-50 outline-none focus:ring-2 focus:ring-emerald-500 transition-all font-medium" value={newUser.username} onChange={(e) => setNewUser({ ...newUser, username: e.target.value })} />
                 </div>
                 <div className="space-y-1">
                   <label className="text-[10px] font-black uppercase text-slate-400 ml-2">Password</label>
-                  <input type="text" placeholder="Secure code" className="w-full p-3.5 rounded-2xl border border-slate-100 bg-slate-50 outline-none focus:ring-2 focus:ring-emerald-500 transition-all font-medium" value={newUser.password} onChange={(e) => setNewUser({...newUser, password: e.target.value})} />
+                  <input type="text" placeholder="Secure code" className="w-full p-3.5 rounded-2xl border border-slate-100 bg-slate-50 outline-none focus:ring-2 focus:ring-emerald-500 transition-all font-medium" value={newUser.password} onChange={(e) => setNewUser({ ...newUser, password: e.target.value })} />
                 </div>
                 <div className="space-y-1">
                   <label className="text-[10px] font-black uppercase text-slate-400 ml-2">Role</label>
-                  <select className="w-full p-3.5 rounded-2xl border border-slate-100 bg-slate-50 outline-none focus:ring-2 focus:ring-emerald-500 transition-all font-bold text-slate-700" value={newUser.role} onChange={(e) => setNewUser({...newUser, role: e.target.value})}>
+                  <select className="w-full p-3.5 rounded-2xl border border-slate-100 bg-slate-50 outline-none focus:ring-2 focus:ring-emerald-500 transition-all font-bold text-slate-700" value={newUser.role} onChange={(e) => setNewUser({ ...newUser, role: e.target.value })}>
                     <option value="student">Student</option>
                     <option value="instructor">Instructor</option>
                   </select>
@@ -2313,9 +2552,9 @@ export default function App() {
                   <div key={u.username} className="px-8 py-5 hover:bg-slate-50/50 transition-colors">
                     {editingUser && editingUser.originalUsername === u.username ? (
                       <form onSubmit={handleUpdateUser} className="grid grid-cols-1 md:grid-cols-4 gap-4 items-center">
-                        <input type="text" className="p-2.5 rounded-xl border border-slate-200 outline-none focus:ring-2 focus:ring-emerald-500 text-sm font-medium" value={editingUser.username} onChange={(e) => setEditingUser({...editingUser, username: e.target.value})} />
-                        <input type="text" className="p-2.5 rounded-xl border border-slate-200 outline-none focus:ring-2 focus:ring-emerald-500 text-sm font-medium" value={editingUser.password} onChange={(e) => setEditingUser({...editingUser, password: e.target.value})} />
-                        <select className="p-2.5 rounded-xl border border-slate-200 outline-none focus:ring-2 focus:ring-emerald-500 text-sm font-bold bg-white" value={editingUser.role} onChange={(e) => setEditingUser({...editingUser, role: e.target.value})}>
+                        <input type="text" className="p-2.5 rounded-xl border border-slate-200 outline-none focus:ring-2 focus:ring-emerald-500 text-sm font-medium" value={editingUser.username} onChange={(e) => setEditingUser({ ...editingUser, username: e.target.value })} />
+                        <input type="text" className="p-2.5 rounded-xl border border-slate-200 outline-none focus:ring-2 focus:ring-emerald-500 text-sm font-medium" value={editingUser.password} onChange={(e) => setEditingUser({ ...editingUser, password: e.target.value })} />
+                        <select className="p-2.5 rounded-xl border border-slate-200 outline-none focus:ring-2 focus:ring-emerald-500 text-sm font-bold bg-white" value={editingUser.role} onChange={(e) => setEditingUser({ ...editingUser, role: e.target.value })}>
                           <option value="student">Student</option>
                           <option value="instructor">Instructor</option>
                         </select>
@@ -2380,6 +2619,13 @@ export default function App() {
                     <div className="flex justify-between items-start gap-4 mb-6">
                       <span className={`w-8 h-8 rounded-xl shadow-sm flex items-center justify-center font-black text-xs shrink-0 ${isCorrect ? 'bg-emerald-500 text-white' : 'bg-red-500 text-white'}`}>{idx + 1}</span>
                       <div className="text-right flex-1">
+                        {q.part && (
+                          <div className="text-left mb-2">
+                            <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold bg-emerald-100 text-emerald-800 border border-emerald-200">
+                              {q.part}
+                            </span>
+                          </div>
+                        )}
                         <p className="font-bold text-xl mb-2 text-slate-800">{q.qEn}</p>
                         <p dir="rtl" className="font-urdu text-2xl text-emerald-800">{q.qUr}</p>
                       </div>
@@ -2487,20 +2733,20 @@ export default function App() {
 
         {adminView === 'users' && (
           <div className="grid gap-6">
-             <div className="bg-white p-8 rounded-[2.5rem] border border-slate-200 shadow-sm">
+            <div className="bg-white p-8 rounded-[2.5rem] border border-slate-200 shadow-sm">
               <h3 className="text-xl font-black mb-6 flex items-center gap-3 text-slate-800"><Shield className="text-emerald-600" /> Create Platform User</h3>
               <form onSubmit={handleAddUser} className="grid grid-cols-1 md:grid-cols-4 gap-4">
                 <div className="space-y-1">
                   <label className="text-[10px] font-black uppercase text-slate-400 ml-2">Username</label>
-                  <input type="text" placeholder="Username" className="w-full p-3.5 rounded-2xl border border-slate-100 bg-slate-50 outline-none focus:ring-2 focus:ring-emerald-500 transition-all font-medium" value={newUser.username} onChange={(e) => setNewUser({...newUser, username: e.target.value})} />
+                  <input type="text" placeholder="Username" className="w-full p-3.5 rounded-2xl border border-slate-100 bg-slate-50 outline-none focus:ring-2 focus:ring-emerald-500 transition-all font-medium" value={newUser.username} onChange={(e) => setNewUser({ ...newUser, username: e.target.value })} />
                 </div>
                 <div className="space-y-1">
                   <label className="text-[10px] font-black uppercase text-slate-400 ml-2">Password</label>
-                  <input type="text" placeholder="Password" className="w-full p-3.5 rounded-2xl border border-slate-100 bg-slate-50 outline-none focus:ring-2 focus:ring-emerald-500 transition-all font-medium" value={newUser.password} onChange={(e) => setNewUser({...newUser, password: e.target.value})} />
+                  <input type="text" placeholder="Password" className="w-full p-3.5 rounded-2xl border border-slate-100 bg-slate-50 outline-none focus:ring-2 focus:ring-emerald-500 transition-all font-medium" value={newUser.password} onChange={(e) => setNewUser({ ...newUser, password: e.target.value })} />
                 </div>
                 <div className="space-y-1">
                   <label className="text-[10px] font-black uppercase text-slate-400 ml-2">System Role</label>
-                  <select className="w-full p-3.5 rounded-2xl border border-slate-100 bg-slate-50 outline-none focus:ring-2 focus:ring-emerald-500 transition-all font-bold text-slate-700" value={newUser.role} onChange={(e) => setNewUser({...newUser, role: e.target.value})}>
+                  <select className="w-full p-3.5 rounded-2xl border border-slate-100 bg-slate-50 outline-none focus:ring-2 focus:ring-emerald-500 transition-all font-bold text-slate-700" value={newUser.role} onChange={(e) => setNewUser({ ...newUser, role: e.target.value })}>
                     <option value="student">Student</option>
                     <option value="instructor">Instructor</option>
                     <option value="admin">Administrator</option>
@@ -2512,7 +2758,7 @@ export default function App() {
               </form>
             </div>
             <div className="bg-white rounded-[2.5rem] border border-slate-200 shadow-sm overflow-hidden">
-               <div className="divide-y divide-slate-50">
+              <div className="divide-y divide-slate-50">
                 {users.map((u) => (
                   <div key={u.username} className="px-8 py-5 hover:bg-slate-50/50 transition-colors flex justify-between items-center">
                     <div className="flex items-center gap-6">
@@ -2593,7 +2839,7 @@ export default function App() {
       <UrduFontStyles />
       <div className="absolute top-[-10%] left-[-10%] w-[40%] h-[40%] bg-emerald-100/30 rounded-full blur-[100px]"></div>
       <div className="absolute bottom-[-10%] right-[-10%] w-[40%] h-[40%] bg-blue-100/30 rounded-full blur-[100px]"></div>
-      
+
       <div className="bg-white/80 backdrop-blur-xl p-10 md:p-14 rounded-[3rem] shadow-2xl w-full max-w-xl border border-white relative z-10">
         <div className="flex justify-center mb-10">
           <div className="p-8 bg-emerald-600 rounded-[2.5rem] text-white shadow-2xl shadow-emerald-200">
@@ -2602,23 +2848,23 @@ export default function App() {
         </div>
         <h1 className="text-4xl font-black text-center text-slate-900 mb-2 tracking-tight">Quran Academy Fsd</h1>
         <h2 dir="rtl" className="text-5xl font-black text-center text-emerald-700 mb-10 font-urdu tracking-wide">عربی انسائٹس</h2>
-        
+
         <form onSubmit={handleLogin} className="space-y-8">
           <div className="space-y-4">
             <div className="relative group">
               <User className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 group-focus-within:text-emerald-500 transition-colors" size={20} />
-              <input 
-                type="text" required placeholder="Username / صارف نام" 
-                className="w-full pl-12 pr-6 py-5 text-lg font-bold rounded-2xl border border-slate-100 bg-slate-50 outline-none focus:ring-2 focus:ring-emerald-500 focus:bg-white transition-all shadow-inner" 
-                value={studentName} onChange={(e) => setStudentName(e.target.value)} 
+              <input
+                type="text" required placeholder="Username / صارف نام"
+                className="w-full pl-12 pr-6 py-5 text-lg font-bold rounded-2xl border border-slate-100 bg-slate-50 outline-none focus:ring-2 focus:ring-emerald-500 focus:bg-white transition-all shadow-inner"
+                value={studentName} onChange={(e) => setStudentName(e.target.value)}
               />
             </div>
             <div className="relative group">
               <Shield className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 group-focus-within:text-emerald-500 transition-colors" size={20} />
-              <input 
-                type="password" required placeholder="Password / پاس ورڈ" 
-                className="w-full pl-12 pr-6 py-5 text-lg font-bold rounded-2xl border border-slate-100 bg-slate-50 outline-none focus:ring-2 focus:ring-emerald-500 focus:bg-white transition-all shadow-inner" 
-                value={password} onChange={(e) => setPassword(e.target.value)} 
+              <input
+                type="password" required placeholder="Password / پاس ورڈ"
+                className="w-full pl-12 pr-6 py-5 text-lg font-bold rounded-2xl border border-slate-100 bg-slate-50 outline-none focus:ring-2 focus:ring-emerald-500 focus:bg-white transition-all shadow-inner"
+                value={password} onChange={(e) => setPassword(e.target.value)}
               />
             </div>
           </div>
@@ -2627,7 +2873,7 @@ export default function App() {
               <XCircle size={20} /> {loginError}
             </div>
           )}
-          <button 
+          <button
             type="submit" disabled={isLoggingIn}
             className={`w-full bg-slate-900 text-white font-black text-xl py-5 rounded-2xl shadow-2xl shadow-slate-200 transition-all hover:bg-black active:scale-[0.98] ${isLoggingIn ? 'opacity-70' : ''}`}
           >
@@ -2640,7 +2886,7 @@ export default function App() {
   );
 
   // Main Content Switcher
-  switch(view) {
+  switch (view) {
     case 'student_courses': return <StudentCourses />;
     case 'student_sections': return <StudentSections />;
     case 'student_lectures': return <StudentLectures />;

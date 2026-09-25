@@ -26,3 +26,6 @@ dist-ssr
 # Project specific
 seed.js
 config.bat
+.env
+.env.*
+.env.local
