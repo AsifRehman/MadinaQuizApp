@@ -78,6 +78,34 @@ export default function App() {
   });
   const [animatingPart, setAnimatingPart] = useState(null);
   const prevQuizPartRef = useRef(null);
+  const tabsContainerRef = useRef(null);
+
+  // Extract unique quiz parts in order of appearance with their question indices
+  const quizParts = React.useMemo(() => {
+    if (!quizState.questions || !Array.isArray(quizState.questions)) return [];
+    const partMap = new Map();
+    quizState.questions.forEach((item, idx) => {
+      const rawPart = (item.part || '').trim();
+      if (rawPart) {
+        if (!partMap.has(rawPart)) {
+          partMap.set(rawPart, {
+            name: rawPart,
+            firstIndex: idx,
+            indices: [idx],
+            count: 1
+          });
+        } else {
+          const entry = partMap.get(rawPart);
+          entry.indices.push(idx);
+          entry.count += 1;
+        }
+      }
+    });
+    return Array.from(partMap.values());
+  }, [quizState.questions]);
+
+  const currentQ = quizState.questions?.[quizState.currentIndex];
+  const currentPartName = (currentQ?.part || '').trim();
   const [view, setView] = useState(getInitialView(savedSession)); // login, student_courses, student_sections, student_lectures, student_quizzes, quiz_taking, instructor_courses, instructor_course_detail, instructor_lecture_detail, admin_dashboard, admin_manage_courses, admin_assign_courses
   const [userRole, setUserRole] = useState(savedSession?.userRole || null);
   const [courses, setCourses] = useState([]);
@@ -635,8 +663,7 @@ export default function App() {
       setAnimatingPart(null);
       return;
     }
-    const currentQ = quizState.questions[quizState.currentIndex];
-    const currentPart = (currentQ?.part || '').trim();
+    const currentPart = (quizState.questions[quizState.currentIndex]?.part || '').trim();
 
     if (
       prevQuizPartRef.current !== null &&
@@ -652,6 +679,25 @@ export default function App() {
     }
     prevQuizPartRef.current = currentPart;
   }, [quizState.active, quizState.currentIndex, quizState.questions]);
+
+  // Smoothly scroll container ONLY when currentPartName actually changes (never re-scroll within the same part)
+  useEffect(() => {
+    if (!tabsContainerRef.current || !currentPartName) return;
+    const container = tabsContainerRef.current;
+    const activeBtn = container.querySelector('[data-active="true"]');
+    if (!activeBtn) return;
+
+    const containerRect = container.getBoundingClientRect();
+    const btnRect = activeBtn.getBoundingClientRect();
+
+    if (btnRect.left < containerRect.left + 10 || btnRect.right > containerRect.right - 10) {
+      const scrollTarget = activeBtn.offsetLeft - (container.clientWidth / 2) + (activeBtn.clientWidth / 2);
+      container.scrollTo({
+        left: Math.max(0, scrollTarget),
+        behavior: 'smooth'
+      });
+    }
+  }, [currentPartName]);
 
   // Global Material ripple on all buttons.
   useEffect(() => {
@@ -1785,43 +1831,6 @@ export default function App() {
     const q = questions[currentIndex];
     const progress = ((currentIndex + 1) / questions.length) * 100;
     const isExam = selectedSection?.kind === 'exam';
-
-    // Extract unique quiz parts in order of appearance with their question indices
-    const quizParts = React.useMemo(() => {
-      if (!questions || !Array.isArray(questions)) return [];
-      const partMap = new Map();
-      questions.forEach((item, idx) => {
-        const rawPart = (item.part || '').trim();
-        if (rawPart) {
-          if (!partMap.has(rawPart)) {
-            partMap.set(rawPart, {
-              name: rawPart,
-              firstIndex: idx,
-              indices: [idx],
-              count: 1
-            });
-          } else {
-            const entry = partMap.get(rawPart);
-            entry.indices.push(idx);
-            entry.count += 1;
-          }
-        }
-      });
-      return Array.from(partMap.values());
-    }, [questions]);
-
-    const currentPartName = (q?.part || '').trim();
-    const activeTabRef = useRef(null);
-
-    useEffect(() => {
-      if (activeTabRef.current) {
-        activeTabRef.current.scrollIntoView({
-          behavior: 'smooth',
-          block: 'nearest',
-          inline: 'center'
-        });
-      }
-    }, [currentPartName]);
     const examPalette = isExam
       ? {
         qUr: 'text-indigo-700',
@@ -1880,18 +1889,20 @@ export default function App() {
           <div className="bg-white rounded-2xl sm:rounded-3xl shadow-sm border border-slate-100 overflow-hidden flex flex-col flex-1 min-h-0">
             <div className="px-5 py-4 md:px-8 md:py-5 text-center border-b border-slate-50 shrink-0">
               {quizParts.length > 0 ? (
-                <div className="mb-4">
-                  <div className="inline-flex items-center gap-1.5 p-1 bg-slate-100/90 rounded-2xl max-w-full overflow-x-auto scrollbar-none border border-slate-200/60 shadow-inner">
+                <div className="mb-4 flex justify-center w-full">
+                  <div
+                    ref={tabsContainerRef}
+                    className="flex items-center gap-1.5 p-1 bg-slate-100/90 rounded-2xl max-w-full overflow-x-auto scrollbar-none border border-slate-200/60 shadow-inner"
+                  >
                     {quizParts.map((part) => {
                       const isActive = currentPartName === part.name;
                       const isCompleted = part.indices.every(idx => idx < currentIndex);
-                      const partCurrentNum = part.indices.indexOf(currentIndex) + 1;
                       const isPartAnimating = animatingPart === part.name;
 
                       return (
                         <button
                           key={part.name}
-                          ref={isActive ? activeTabRef : null}
+                          data-active={isActive ? "true" : "false"}
                           type="button"
                           onClick={() => {
                             if (part.firstIndex !== currentIndex) {
@@ -1899,7 +1910,7 @@ export default function App() {
                             }
                           }}
                           title={`Go to ${part.name} (Question ${part.firstIndex + 1})`}
-                          className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition-all duration-300 shrink-0 select-none cursor-pointer ${
+                          className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition-colors duration-200 shrink-0 select-none cursor-pointer ${
                             isActive
                               ? `${isExam ? 'bg-indigo-600 text-white shadow-md shadow-indigo-600/30 ring-2 ring-indigo-400 ring-offset-1' : 'bg-emerald-600 text-white shadow-md shadow-emerald-600/30 ring-2 ring-emerald-400 ring-offset-1'} ${
                                   isPartAnimating
@@ -1935,7 +1946,7 @@ export default function App() {
                                 : 'bg-slate-200/70 text-slate-500'
                             }`}
                           >
-                            {isActive && partCurrentNum > 0 ? `${partCurrentNum}/${part.count}` : part.count}
+                            {part.count}
                           </span>
                         </button>
                       );
@@ -2923,7 +2934,7 @@ export default function App() {
     case 'student_sections': return <StudentSections />;
     case 'student_lectures': return <StudentLectures />;
     case 'student_quizzes': return <StudentQuizzes />;
-    case 'quiz_taking': return <QuizTaking />;
+    case 'quiz_taking': return QuizTaking();
     case 'instructor_courses': return <InstructorDashboard />;
     case 'admin_dashboard': return <AdminDashboard />;
     default: return <StudentCourses />;
