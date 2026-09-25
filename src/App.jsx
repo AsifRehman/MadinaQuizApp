@@ -76,6 +76,8 @@ export default function App() {
   const [quizState, setQuizState] = useState({
     active: false, questions: [], currentIndex: 0, score: 0, showResult: false, answers: [], startedAt: null
   });
+  const [animatingPart, setAnimatingPart] = useState(null);
+  const prevQuizPartRef = useRef(null);
   const [view, setView] = useState(getInitialView(savedSession)); // login, student_courses, student_sections, student_lectures, student_quizzes, quiz_taking, instructor_courses, instructor_course_detail, instructor_lecture_detail, admin_dashboard, admin_manage_courses, admin_assign_courses
   const [userRole, setUserRole] = useState(savedSession?.userRole || null);
   const [courses, setCourses] = useState([]);
@@ -625,6 +627,31 @@ export default function App() {
       navigateTo(selectedLecture?.id ? 'student_quizzes' : selectedSection?.id ? 'student_quizzes' : 'student_lectures', { replace: true });
     }
   }, [isLoggedIn, view, selectedCourse?.id, selectedSection?.id, selectedLecture?.id, selectedQuiz?.id]);
+
+  // Trigger tab animation ONLY when quiz part actually changes
+  useEffect(() => {
+    if (!quizState.active || !quizState.questions || quizState.questions.length === 0) {
+      prevQuizPartRef.current = null;
+      setAnimatingPart(null);
+      return;
+    }
+    const currentQ = quizState.questions[quizState.currentIndex];
+    const currentPart = (currentQ?.part || '').trim();
+
+    if (
+      prevQuizPartRef.current !== null &&
+      prevQuizPartRef.current !== currentPart &&
+      currentPart !== ''
+    ) {
+      setAnimatingPart(currentPart);
+      const timer = setTimeout(() => {
+        setAnimatingPart(null);
+      }, 700);
+      prevQuizPartRef.current = currentPart;
+      return () => clearTimeout(timer);
+    }
+    prevQuizPartRef.current = currentPart;
+  }, [quizState.active, quizState.currentIndex, quizState.questions]);
 
   // Global Material ripple on all buttons.
   useEffect(() => {
@@ -1859,10 +1886,11 @@ export default function App() {
                       const isActive = currentPartName === part.name;
                       const isCompleted = part.indices.every(idx => idx < currentIndex);
                       const partCurrentNum = part.indices.indexOf(currentIndex) + 1;
+                      const isPartAnimating = animatingPart === part.name;
 
                       return (
                         <button
-                          key={`${part.name}-${isActive ? 'active' : 'inactive'}`}
+                          key={part.name}
                           ref={isActive ? activeTabRef : null}
                           type="button"
                           onClick={() => {
@@ -1873,9 +1901,11 @@ export default function App() {
                           title={`Go to ${part.name} (Question ${part.firstIndex + 1})`}
                           className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition-all duration-300 shrink-0 select-none cursor-pointer ${
                             isActive
-                              ? isExam
-                                ? 'bg-indigo-600 text-white shadow-md shadow-indigo-600/30 ring-2 ring-indigo-400 ring-offset-1 animate-exam-part-active'
-                                : 'bg-emerald-600 text-white shadow-md shadow-emerald-600/30 ring-2 ring-emerald-400 ring-offset-1 animate-part-active'
+                              ? `${isExam ? 'bg-indigo-600 text-white shadow-md shadow-indigo-600/30 ring-2 ring-indigo-400 ring-offset-1' : 'bg-emerald-600 text-white shadow-md shadow-emerald-600/30 ring-2 ring-emerald-400 ring-offset-1'} ${
+                                  isPartAnimating
+                                    ? (isExam ? 'animate-exam-part-active' : 'animate-part-active')
+                                    : ''
+                                }`
                               : isCompleted
                               ? 'bg-white/80 text-emerald-700 hover:bg-white border border-emerald-200/60 shadow-xs'
                               : 'text-slate-500 hover:text-slate-700 hover:bg-white/50 border border-transparent'
@@ -1883,7 +1913,9 @@ export default function App() {
                         >
                           {isActive ? (
                             <span className="relative flex h-2 w-2 mr-0.5 shrink-0">
-                              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-white opacity-75"></span>
+                              {isPartAnimating && (
+                                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-white opacity-75"></span>
+                              )}
                               <span className="relative inline-flex rounded-full h-2 w-2 bg-white"></span>
                             </span>
                           ) : isCompleted ? (
