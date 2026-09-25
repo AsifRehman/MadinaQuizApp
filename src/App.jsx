@@ -1063,6 +1063,12 @@ export default function App() {
     if (!quizState.active || quizState.showResult) return;
     const isLast = quizState.currentIndex >= quizState.questions.length - 1;
     if (isLast) {
+      const firstUnansweredIdx = quizState.questions.findIndex((_, i) => !quizState.answers[i]);
+      if (firstUnansweredIdx !== -1) {
+        alert(`Please complete all questions before finishing the quiz. Redirecting to Question ${firstUnansweredIdx + 1}.`);
+        setQuizState(prev => ({ ...prev, currentIndex: firstUnansweredIdx }));
+        return;
+      }
       finishQuiz();
       return;
     }
@@ -1074,6 +1080,13 @@ export default function App() {
 
   const finishQuiz = () => {
     const questions = quizState.questions;
+    const firstUnansweredIdx = questions.findIndex((_, i) => !quizState.answers[i]);
+    if (firstUnansweredIdx !== -1) {
+      alert(`Please complete all questions before finishing the quiz. Redirecting to Question ${firstUnansweredIdx + 1}.`);
+      setQuizState(prev => ({ ...prev, currentIndex: firstUnansweredIdx }));
+      return;
+    }
+
     let correctCount = 0;
     questions.forEach((q, i) => {
       const ans = quizState.answers[i];
@@ -1831,6 +1844,8 @@ export default function App() {
     const q = questions[currentIndex];
     const progress = ((currentIndex + 1) / questions.length) * 100;
     const isExam = selectedSection?.kind === 'exam';
+    const unansweredCount = questions.filter((_, i) => !quizState.answers[i]).length;
+    const canFinish = unansweredCount === 0;
     const examPalette = isExam
       ? {
         qUr: 'text-indigo-700',
@@ -1896,7 +1911,7 @@ export default function App() {
                   >
                     {quizParts.map((part) => {
                       const isActive = currentPartName === part.name;
-                      const isCompleted = part.indices.every(idx => idx < currentIndex);
+                      const isCompleted = part.indices.every(idx => Boolean(quizState.answers[idx]));
                       const isPartAnimating = animatingPart === part.name;
 
                       return (
@@ -1991,14 +2006,45 @@ export default function App() {
               >
                 <ArrowLeft size={16} /> Previous
               </button>
-              <div className="text-xs font-black text-slate-400 tabular-nums">{currentIndex + 1} / {questions.length}</div>
-              <button
-                type="button"
-                onClick={goToNextQuestion}
-                className={`flex items-center gap-2 px-4 md:px-6 py-2.5 rounded-xl text-white font-bold text-sm transition-colors shadow-sm ${examPalette.next}`}
-              >
-                {currentIndex >= questions.length - 1 ? 'Finish Quiz' : 'Next'} <ArrowRight size={16} />
-              </button>
+              <div className="text-xs font-black text-slate-400 tabular-nums">
+                {currentIndex + 1} / {questions.length}
+                {unansweredCount > 0 && (
+                  <span className="ml-2 text-amber-600 font-bold hidden sm:inline">({unansweredCount} unselected)</span>
+                )}
+              </div>
+              {currentIndex >= questions.length - 1 ? (
+                canFinish ? (
+                  <button
+                    type="button"
+                    onClick={goToNextQuestion}
+                    className={`flex items-center gap-2 px-4 md:px-6 py-2.5 rounded-xl text-white font-bold text-sm transition-colors shadow-sm ${examPalette.next}`}
+                  >
+                    Finish Quiz <ArrowRight size={16} />
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const firstUnansweredIdx = questions.findIndex((_, i) => !quizState.answers[i]);
+                      if (firstUnansweredIdx !== -1) {
+                        setQuizState(prev => ({ ...prev, currentIndex: firstUnansweredIdx }));
+                      }
+                    }}
+                    title={`${unansweredCount} question(s) unselected. Click to jump to Question ${questions.findIndex((_, i) => !quizState.answers[i]) + 1}.`}
+                    className="flex items-center gap-2 px-4 md:px-6 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-600 text-white font-bold text-sm transition-colors shadow-sm animate-pulse"
+                  >
+                    <span>Complete {unansweredCount} Unanswered</span> <ArrowRight size={16} />
+                  </button>
+                )
+              ) : (
+                <button
+                  type="button"
+                  onClick={goToNextQuestion}
+                  className={`flex items-center gap-2 px-4 md:px-6 py-2.5 rounded-xl text-white font-bold text-sm transition-colors shadow-sm ${examPalette.next}`}
+                >
+                  Next <ArrowRight size={16} />
+                </button>
+              )}
             </div>
           </div>
         </main>
