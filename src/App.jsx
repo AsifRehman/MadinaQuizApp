@@ -25,8 +25,10 @@ import {
   Shield,
   ArrowLeft,
   ArrowRight,
-  ChevronDown
+  ChevronDown,
+  Table
 } from 'lucide-react';
+import QuizContentManager from './QuizContentManager';
 
 // --- STYLING ---
 const UrduFontStyles = () => (
@@ -904,11 +906,6 @@ export default function App() {
       fetchAllStudentsData();
       fetchUsers();
       fetchLoginLogs();
-      const interval = setInterval(() => {
-        fetchAllStudentsData();
-        fetchLoginLogs();
-      }, 10000);
-      return () => clearInterval(interval);
     } else if (userRole === 'student' && studentId) {
       fetchStudentData(studentId);
     }
@@ -1541,15 +1538,41 @@ export default function App() {
                     >
                       Start New Attempt
                     </button>
+                    {(userRole === 'instructor' || userRole === 'admin') && (
+                      <button
+                        onClick={() => {
+                          setSelectedQuiz(quiz);
+                          setInstructorView('quiz_manager');
+                          navigateTo('instructor_courses');
+                        }}
+                        className="w-full py-2 px-3 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-1.5 border border-emerald-200 mt-1"
+                      >
+                        <Table size={14} /> Questions Table &amp; JSON Editor
+                      </button>
+                    )}
                   </div>
                 ) : (
-                  <button
-                    onClick={() => startTakingQuiz(quiz)}
-                    className={`flex items-center gap-2 font-bold text-sm mt-4 hover:text-emerald-700 transition-colors ${palette.accent}`}
-                  >
-                    <Plus size={16} />
-                    <span>Start New Attempt</span>
-                  </button>
+                  <div className="space-y-2 mt-4">
+                    <button
+                      onClick={() => startTakingQuiz(quiz)}
+                      className={`flex items-center gap-2 font-bold text-sm hover:text-emerald-700 transition-colors ${palette.accent}`}
+                    >
+                      <Plus size={16} />
+                      <span>Start New Attempt</span>
+                    </button>
+                    {(userRole === 'instructor' || userRole === 'admin') && (
+                      <button
+                        onClick={() => {
+                          setSelectedQuiz(quiz);
+                          setInstructorView('quiz_manager');
+                          navigateTo('instructor_courses');
+                        }}
+                        className="w-full py-2 px-3 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-1.5 border border-emerald-200"
+                      >
+                        <Table size={14} /> Questions Table &amp; JSON Editor
+                      </button>
+                    )}
+                  </div>
                 )}
               </div>
             );
@@ -1886,7 +1909,20 @@ export default function App() {
               </div>
             </div>
           </div>
-          <div className="flex items-center gap-4">
+          <div className="flex items-center gap-2 sm:gap-4">
+            {(userRole === 'instructor' || userRole === 'admin') && (
+              <button
+                onClick={() => {
+                  setInstructorView('quiz_manager');
+                  navigateTo('instructor_courses');
+                }}
+                className="flex items-center gap-1.5 px-3 py-2 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 rounded-xl border border-emerald-200 transition-colors font-bold text-xs"
+                title="View full lecture quiz and answers in Table and JSON format"
+              >
+                <Table size={14} />
+                <span className="hidden sm:inline">Table / JSON</span>
+              </button>
+            )}
             <button
               onClick={handleEditQuizClick}
               className="flex items-center gap-2 px-3.5 py-2 bg-amber-50 hover:bg-amber-100 text-amber-700 rounded-xl border border-amber-200 transition-colors font-bold text-xs animate-pulse"
@@ -2103,6 +2139,14 @@ export default function App() {
         </button>
         <button
           onClick={() => {
+            setInstructorView('quiz_manager');
+          }}
+          className={`h-full px-2 flex items-center gap-2 font-bold text-sm transition-all border-b-2 ${instructorView === 'quiz_manager' ? 'border-emerald-600 text-emerald-600' : 'border-transparent text-slate-400 hover:text-slate-600'}`}
+        >
+          <Table size={18} /> Quiz Questions (Table &amp; JSON)
+        </button>
+        <button
+          onClick={() => {
             setInstructorView('results');
             setSelectedQuiz(null);
             setSelectedQuizTitle(null);
@@ -2125,7 +2169,23 @@ export default function App() {
         </button>
       </nav>
 
-      <main className="max-w-6xl mx-auto p-6">
+      {instructorView === 'quiz_manager' ? (
+        <QuizContentManager
+          sql={sql}
+          initialQuiz={selectedQuiz}
+          courses={courses}
+          sections={sections}
+          lectures={lectures}
+          selectedCourse={selectedCourse}
+          selectedSection={selectedSection}
+          onBack={() => setInstructorView(selectedQuiz ? 'quiz_versions' : 'courses')}
+          onQuizUpdated={() => {
+            if (selectedCourse?.id) fetchCourseQuizzes(selectedCourse.id);
+            if (selectedLecture?.id) fetchQuizzes(selectedLecture.id);
+          }}
+        />
+      ) : (
+        <main className="max-w-6xl mx-auto p-6">
         {instructorView === 'courses' && (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
             {courses.map(course => (
@@ -2276,22 +2336,40 @@ export default function App() {
                 </div>
               </button>
               {courseQuizzes.filter(q => q.title === selectedQuizTitle).map(quiz => (
-                <button
+                <div
                   key={quiz.id}
-                  onClick={() => {
-                    setSelectedQuiz(quiz);
-                    setInstructorView('results');
-                    fetchSpecificQuizResults(quiz.id);
-                  }}
-                  className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm hover:shadow-md hover:border-emerald-300 text-left transition-all group"
+                  className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm hover:shadow-md hover:border-emerald-300 text-left transition-all group flex flex-col justify-between"
                 >
-                  <div className="flex items-center justify-between mb-4">
-                    <span className="text-[10px] font-black uppercase tracking-widest text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded">Version {quiz.version}</span>
-                    <span className="text-[10px] font-black uppercase tracking-widest text-slate-400 bg-slate-50 px-2 py-0.5 rounded">{quiz.quiz_type}</span>
+                  <div>
+                    <div className="flex items-center justify-between mb-4">
+                      <span className="text-[10px] font-black uppercase tracking-widest text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded">Version {quiz.version}</span>
+                      <span className="text-[10px] font-black uppercase tracking-widest text-slate-400 bg-slate-50 px-2 py-0.5 rounded">{quiz.quiz_type}</span>
+                    </div>
+                    <h4 className="font-bold text-slate-800 text-base mb-1">{quiz.title}</h4>
+                    <p className="text-slate-400 text-[10px] mb-4">Created {formatRelativeTime(quiz.created_at)}</p>
                   </div>
-                  <h4 className="font-bold text-slate-800">View Results</h4>
-                  <p className="text-slate-400 text-[10px] mt-1">Created {formatRelativeTime(quiz.created_at)}</p>
-                </button>
+                  <div className="grid grid-cols-1 gap-2 pt-3 border-t border-slate-50">
+                    <button
+                      onClick={() => {
+                        setSelectedQuiz(quiz);
+                        setInstructorView('quiz_manager');
+                      }}
+                      className="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-black py-2.5 px-3 rounded-xl text-xs flex items-center justify-center gap-1.5 transition-all shadow-sm active:scale-95"
+                    >
+                      <Table size={14} /> Questions (Table / JSON)
+                    </button>
+                    <button
+                      onClick={() => {
+                        setSelectedQuiz(quiz);
+                        setInstructorView('results');
+                        fetchSpecificQuizResults(quiz.id);
+                      }}
+                      className="w-full bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold py-2 px-3 rounded-xl text-xs flex items-center justify-center gap-1.5 transition-all"
+                    >
+                      <PieChart size={14} /> Student Results
+                    </button>
+                  </div>
+                </div>
               ))}
             </div>
           </div>
@@ -2493,12 +2571,20 @@ export default function App() {
                       </div>
                       <h4 className="font-bold text-slate-800 text-lg">{quiz.title}</h4>
                     </div>
-                    <button
-                      onClick={() => { setSelectedQuiz(quiz); setInstructorView('results'); fetchSpecificQuizResults(quiz.id); }}
-                      className="bg-slate-900 text-white px-4 py-2 rounded-xl text-xs font-bold hover:bg-black transition-all"
-                    >
-                      View Results
-                    </button>
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={() => { setSelectedQuiz(quiz); setInstructorView('quiz_manager'); }}
+                        className="bg-emerald-600 text-white px-3.5 py-2 rounded-xl text-xs font-bold hover:bg-emerald-700 transition-all flex items-center gap-1.5"
+                      >
+                        <Table size={14} /> Questions (Table / JSON)
+                      </button>
+                      <button
+                        onClick={() => { setSelectedQuiz(quiz); setInstructorView('results'); fetchSpecificQuizResults(quiz.id); }}
+                        className="bg-slate-900 text-white px-3.5 py-2 rounded-xl text-xs font-bold hover:bg-black transition-all"
+                      >
+                        View Results
+                      </button>
+                    </div>
                   </div>
                 ))}
                 {quizzes.length === 0 && <p className="text-slate-400 font-bold py-6 text-center">No quizzes in this exam section.</p>}
@@ -2595,13 +2681,32 @@ export default function App() {
                     <h4 className="font-bold text-slate-800 text-lg">{quiz.title}</h4>
                   </div>
                   <div className="flex items-center gap-2">
-                    <button className="p-2 text-slate-400 hover:text-emerald-600 transition-colors"><Edit2 size={20} /></button>
+                    <button
+                      onClick={() => {
+                        setSelectedQuiz(quiz);
+                        setInstructorView('quiz_manager');
+                      }}
+                      className="flex items-center gap-1.5 text-xs font-bold text-emerald-600 bg-emerald-50 hover:bg-emerald-100 px-3 py-2 rounded-xl transition-all"
+                      title="View and Edit Questions in Table and JSON format"
+                    >
+                      <Table size={15} /> Questions (Table / JSON)
+                    </button>
+                    <button
+                      onClick={() => {
+                        setSelectedQuiz(quiz);
+                        setInstructorView('quiz_manager');
+                      }}
+                      className="p-2 text-slate-400 hover:text-emerald-600 hover:bg-slate-100 rounded-xl transition-colors"
+                      title="Edit Quiz Questions"
+                    >
+                      <Edit2 size={18} />
+                    </button>
                     <button onClick={async () => {
                       if (confirm('Delete quiz?')) {
                         await sql`DELETE FROM quizzes WHERE id = ${quiz.id}`;
                         fetchQuizzes(selectedLecture.id);
                       }
-                    }} className="p-2 text-slate-300 hover:text-red-500 transition-colors"><XCircle size={20} /></button>
+                    }} className="p-2 text-slate-300 hover:text-red-500 hover:bg-red-50 rounded-xl transition-colors" title="Delete Quiz"><XCircle size={18} /></button>
                   </div>
                 </div>
               ))}
@@ -2678,6 +2783,7 @@ export default function App() {
           </div>
         )}
       </main>
+    )}
 
       {viewingDetails && (
         <div className="fixed inset-0 bg-slate-900/80 backdrop-blur-md z-50 flex items-center justify-center p-4">
