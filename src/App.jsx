@@ -682,44 +682,41 @@ export default function App() {
     prevQuizPartRef.current = currentPart;
   }, [quizState.active, quizState.currentIndex, quizState.questions]);
 
-  // Smoothly scroll container ONLY when currentPartName actually changes (never re-scroll within the same part)
+  // Ensure the active part tab is always visible and scrolled into view
   useEffect(() => {
-    if (!tabsContainerRef.current || !currentPartName) return;
-    const container = tabsContainerRef.current;
-    const activeBtn = container.querySelector('[data-active="true"]');
-    if (!activeBtn) return;
+    if (view !== 'quiz_taking' || !quizState.active || !currentPartName) return;
 
-    const containerRect = container.getBoundingClientRect();
-    const btnRect = activeBtn.getBoundingClientRect();
+    const timer = setTimeout(() => {
+      const container = tabsContainerRef.current;
+      if (!container) return;
 
-    if (btnRect.left < containerRect.left + 10 || btnRect.right > containerRect.right - 10) {
-      const scrollTarget = activeBtn.offsetLeft - (container.clientWidth / 2) + (activeBtn.clientWidth / 2);
-      container.scrollTo({
-        left: Math.max(0, scrollTarget),
-        behavior: 'smooth'
-      });
-    }
-  }, [currentPartName]);
+      // When at the very first question, always reset scroll to the start
+      if (quizState.currentIndex === 0) {
+        container.scrollTo({ left: 0, behavior: 'smooth' });
+        return;
+      }
 
-  // Global Material ripple on all buttons.
-  useEffect(() => {
-    const createRipple = (event) => {
-      const btn = event.target.closest('button');
-      if (!btn) return;
-      btn.classList.add('ripple-container');
-      const rect = btn.getBoundingClientRect();
-      const size = Math.max(rect.width, rect.height);
-      const ripple = document.createElement('span');
-      ripple.className = 'ripple';
-      ripple.style.width = ripple.style.height = `${size}px`;
-      ripple.style.left = `${event.clientX - rect.left - size / 2}px`;
-      ripple.style.top = `${event.clientY - rect.top - size / 2}px`;
-      btn.appendChild(ripple);
-      ripple.addEventListener('animationend', () => ripple.remove());
-    };
-    document.addEventListener('pointerdown', createRipple);
-    return () => document.removeEventListener('pointerdown', createRipple);
-  }, []);
+      const activeBtn = container.querySelector('[data-active="true"]');
+      if (!activeBtn) return;
+
+      const containerRect = container.getBoundingClientRect();
+      const btnRect = activeBtn.getBoundingClientRect();
+
+      // Check if active button is outside or near visible boundaries
+      if (btnRect.left < containerRect.left + 15 || btnRect.right > containerRect.right - 15) {
+        const relativeLeft = btnRect.left - containerRect.left;
+        const target = container.scrollLeft + relativeLeft - (containerRect.width / 2) + (btnRect.width / 2);
+        container.scrollTo({
+          left: Math.max(0, target),
+          behavior: 'smooth'
+        });
+      }
+    }, 60);
+
+    return () => clearTimeout(timer);
+  }, [currentPartName, quizState.currentIndex, view, quizState.active]);
+
+
 
   const fetchAssignedCourses = async (uid) => {
     try {
@@ -1026,13 +1023,14 @@ export default function App() {
 
     // Record the selection for this question index (stable, navigable).
     const snapshot = createAnswerSnapshot(option, currentQ);
-    const isLast = quizState.currentIndex >= quizState.questions.length - 1;
 
     setQuizState(prev => {
       if (!prev.active || prev.showResult) return prev;
       const answers = [...prev.answers];
       answers[prev.currentIndex] = snapshot;
       // Auto-advance to the next question after selecting an answer.
+      // Use prev.currentIndex here (not the stale outer closure) to avoid race conditions.
+      const isLast = prev.currentIndex >= prev.questions.length - 1;
       if (isLast) return { ...prev, answers };
       return { ...prev, answers, currentIndex: prev.currentIndex + 1 };
     });
@@ -1166,23 +1164,9 @@ export default function App() {
     navigateTo('quiz_taking');
   };
 
-  // Sync quizState when quizData changes if taking quiz
-  useEffect(() => {
-    if (quizState.active && quizData.length > 0 && quizState.questions.length === 0) {
-      const shuffledQuestions = quizData.map(q => {
-        const optionsWithIdx = q.options.map((opt, idx) => ({ ...opt, originalIdx: idx }));
-        const shuffledOptions = optionsWithIdx
-          .map(value => ({ value, sort: Math.random() }))
-          .sort((a, b) => a.sort - b.sort)
-          .map(({ value }) => value);
-        return {
-          ...q,
-          options: shuffledOptions
-        };
-      });
-      setQuizState(prev => ({ ...prev, questions: shuffledQuestions, answers: new Array(shuffledQuestions.length).fill(null) }));
-    }
-  }, [quizData, quizState.active]);
+  // NOTE: No sync effect here — startTakingQuiz sets questions directly from the fetch return
+  // value and must NOT be re-triggered by quizData changes, because fetchQuizData is also called
+  // in other contexts (e.g., openResultDetails) and would reset all in-progress answers to null.
 
   const handleLogout = () => {
     setIsLoggedIn(false);
@@ -1940,10 +1924,22 @@ export default function App() {
           <div className="bg-white rounded-2xl sm:rounded-3xl shadow-sm border border-slate-100 overflow-hidden flex flex-col flex-1 min-h-0">
             <div className="px-5 py-4 md:px-8 md:py-5 text-center border-b border-slate-50 shrink-0">
               {quizParts.length > 0 ? (
-                <div className="mb-4 flex justify-center w-full">
+                <div className="mb-3 flex items-center gap-1 w-full">
+                  {/* Left scroll arrow */}
+                  <button
+                    type="button"
+                    aria-label="Scroll parts left"
+                    onClick={() => { if (tabsContainerRef.current) tabsContainerRef.current.scrollBy({ left: -160, behavior: 'smooth' }); }}
+                    className="shrink-0 h-8 w-7 flex items-center justify-center rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-colors"
+                  >
+                    <ArrowLeft size={14} />
+                  </button>
+
+                  {/* Tabs row — fixed height so it never expands vertically */}
                   <div
                     ref={tabsContainerRef}
-                    className="flex items-center gap-1.5 p-1 bg-slate-100/90 rounded-2xl max-w-full overflow-x-auto scrollbar-none border border-slate-200/60 shadow-inner"
+                    className="flex items-center gap-1.5 p-1 bg-slate-100/90 rounded-2xl flex-1 overflow-x-auto scrollbar-none border border-slate-200/60 shadow-inner h-10 relative scroll-smooth"
+                    style={{ minHeight: '2.5rem', maxHeight: '2.5rem' }}
                   >
                     {quizParts.map((part) => {
                       const isActive = currentPartName === part.name;
@@ -1961,7 +1957,7 @@ export default function App() {
                             }
                           }}
                           title={`Go to ${part.name} (Question ${part.firstIndex + 1})`}
-                          className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition-colors duration-200 shrink-0 select-none cursor-pointer ${
+                          className={`inline-flex items-center gap-1.5 px-3 h-7 rounded-xl text-xs font-bold transition-colors duration-200 shrink-0 select-none cursor-pointer whitespace-nowrap ${
                             isActive
                               ? `${isExam ? 'bg-indigo-600 text-white shadow-md shadow-indigo-600/30 ring-2 ring-indigo-400 ring-offset-1' : 'bg-emerald-600 text-white shadow-md shadow-emerald-600/30 ring-2 ring-emerald-400 ring-offset-1'} ${
                                   isPartAnimating
@@ -1986,10 +1982,10 @@ export default function App() {
                             <span className="w-1.5 h-1.5 rounded-full bg-slate-300 shrink-0"></span>
                           )}
 
-                          <span className="truncate max-w-[140px] sm:max-w-none">{part.name}</span>
+                          <span className="truncate max-w-[120px] sm:max-w-none">{part.name}</span>
 
                           <span
-                            className={`text-[10px] px-1.5 py-0.5 rounded-full font-bold tabular-nums ${
+                            className={`text-[10px] px-1.5 py-0.5 rounded-full font-bold tabular-nums shrink-0 ${
                               isActive
                                 ? 'bg-white/25 text-white'
                                 : isCompleted
@@ -2003,6 +1999,16 @@ export default function App() {
                       );
                     })}
                   </div>
+
+                  {/* Right scroll arrow */}
+                  <button
+                    type="button"
+                    aria-label="Scroll parts right"
+                    onClick={() => { if (tabsContainerRef.current) tabsContainerRef.current.scrollBy({ left: 160, behavior: 'smooth' }); }}
+                    className="shrink-0 h-8 w-7 flex items-center justify-center rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-colors"
+                  >
+                    <ArrowRight size={14} />
+                  </button>
                 </div>
               ) : q.part ? (
                 <div className="mb-2">
@@ -2022,13 +2028,13 @@ export default function App() {
                     key={opt.originalIdx ?? opt.en}
                     type="button"
                     onClick={() => selectAnswer(opt, { persistQuizId: selectedQuiz?.id })}
-                    className={`w-full px-4 py-3 md:p-4 bg-white border-2 rounded-xl md:rounded-2xl text-left flex flex-col md:flex-row md:items-center justify-between group transition-all ${selected
+                    className={`w-full px-4 py-2.5 bg-white border-2 rounded-xl text-left flex flex-row items-center justify-between gap-3 group transition-all shrink-0 active:scale-[0.99] ${selected
                         ? `${examPalette.selected} shadow-md`
                         : `border-slate-100 ${examPalette.option} hover:shadow-md`
                       }`}
                   >
-                    <span className={`text-base md:text-lg font-bold ${selected ? examPalette.selectedText : `text-slate-700 ${examPalette.optionText}`}`}>{opt.en}</span>
-                    <span dir="rtl" className={`text-lg md:text-xl font-bold font-urdu mt-1 md:mt-0 ${examPalette.urText}`}>{opt.ur}</span>
+                    <span className={`text-base font-bold leading-snug flex-1 ${selected ? examPalette.selectedText : `text-slate-700 ${examPalette.optionText}`}`}>{opt.en}</span>
+                    <span dir="rtl" className={`text-lg font-bold font-urdu shrink-0 ${examPalette.urText}`}>{opt.ur}</span>
                   </button>
                 );
               })}
@@ -2048,30 +2054,39 @@ export default function App() {
                   <span className="ml-2 text-amber-600 font-bold hidden sm:inline">({unansweredCount} unselected)</span>
                 )}
               </div>
-              {currentIndex >= questions.length - 1 ? (
-                canFinish ? (
+              {canFinish ? (
+                <div className="flex items-center gap-2">
+                  {currentIndex < questions.length - 1 && (
+                    <button
+                      type="button"
+                      onClick={goToNextQuestion}
+                      className="flex items-center gap-1.5 px-3 md:px-4 py-2.5 rounded-xl border border-slate-200 text-slate-600 font-bold text-sm hover:bg-slate-50 transition-colors"
+                    >
+                      Next <ArrowRight size={16} />
+                    </button>
+                  )}
                   <button
                     type="button"
-                    onClick={goToNextQuestion}
+                    onClick={finishQuiz}
                     className={`flex items-center gap-2 px-4 md:px-6 py-2.5 rounded-xl text-white font-bold text-sm transition-colors shadow-sm ${examPalette.next}`}
                   >
                     Finish Quiz <ArrowRight size={16} />
                   </button>
-                ) : (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      const firstUnansweredIdx = questions.findIndex((_, i) => !quizState.answers[i]);
-                      if (firstUnansweredIdx !== -1) {
-                        setQuizState(prev => ({ ...prev, currentIndex: firstUnansweredIdx }));
-                      }
-                    }}
-                    title={`${unansweredCount} question(s) unselected. Click to jump to Question ${questions.findIndex((_, i) => !quizState.answers[i]) + 1}.`}
-                    className="flex items-center gap-2 px-4 md:px-6 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-600 text-white font-bold text-sm transition-colors shadow-sm animate-pulse"
-                  >
-                    <span>Complete {unansweredCount} Unanswered</span> <ArrowRight size={16} />
-                  </button>
-                )
+                </div>
+              ) : currentIndex >= questions.length - 1 ? (
+                <button
+                  type="button"
+                  onClick={() => {
+                    const firstUnansweredIdx = questions.findIndex((_, i) => !quizState.answers[i]);
+                    if (firstUnansweredIdx !== -1) {
+                      setQuizState(prev => ({ ...prev, currentIndex: firstUnansweredIdx }));
+                    }
+                  }}
+                  title={`${unansweredCount} question(s) unselected. Click to jump to Question ${questions.findIndex((_, i) => !quizState.answers[i]) + 1}.`}
+                  className="flex items-center gap-2 px-4 md:px-6 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-600 text-white font-bold text-sm transition-colors shadow-sm animate-pulse"
+                >
+                  <span>Complete {unansweredCount} Unanswered</span> <ArrowRight size={16} />
+                </button>
               ) : (
                 <button
                   type="button"
