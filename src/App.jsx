@@ -56,6 +56,41 @@ const getSavedSession = () => {
   }
 };
 
+const ACTIVE_QUIZ_PREFIX = 'madina_active_quiz_v1_';
+
+const getActiveQuizStorageKey = (uid, quizId) => `${ACTIVE_QUIZ_PREFIX}${uid || 'guest'}_${quizId}`;
+
+const loadActiveQuizState = (uid, quizId) => {
+  if (!quizId) return null;
+  try {
+    const raw = localStorage.getItem(getActiveQuizStorageKey(uid, quizId));
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    if (parsed && Array.isArray(parsed.questions) && parsed.questions.length > 0) {
+      return parsed;
+    }
+  } catch (err) {
+    console.error("Failed to load active quiz state:", err);
+  }
+  return null;
+};
+
+const saveActiveQuizState = (uid, quizId, data) => {
+  if (!quizId) return;
+  try {
+    localStorage.setItem(getActiveQuizStorageKey(uid, quizId), JSON.stringify(data));
+  } catch (e) {
+    console.error("Failed to save active quiz state:", e);
+  }
+};
+
+const clearActiveQuizState = (uid, quizId) => {
+  if (!quizId) return;
+  try {
+    localStorage.removeItem(getActiveQuizStorageKey(uid, quizId));
+  } catch (e) {}
+};
+
 const getInitialView = (savedSession) => {
   const routeView = window.location.hash.replace(/^#\/?/, '');
   if (routeView) return routeView;
@@ -110,6 +145,7 @@ export default function App() {
   const currentPartName = (currentQ?.part || '').trim();
   const [view, setView] = useState(getInitialView(savedSession)); // login, student_courses, student_sections, student_lectures, student_quizzes, quiz_taking, instructor_courses, instructor_course_detail, instructor_lecture_detail, admin_dashboard, admin_manage_courses, admin_assign_courses
   const [userRole, setUserRole] = useState(savedSession?.userRole || null);
+  const [assignedCourseIds, setAssignedCourseIds] = useState(savedSession?.assignedCourseIds || []);
   const [courses, setCourses] = useState([]);
   const [sections, setSections] = useState([]);
   const [selectedCourse, setSelectedCourse] = useState(savedSession?.selectedCourse || null);
@@ -117,7 +153,7 @@ export default function App() {
   const [selectedLecture, setSelectedLecture] = useState(savedSession?.selectedLecture || null);
   const [quizzes, setQuizzes] = useState([]);
   const [courseQuizzes, setCourseQuizzes] = useState([]);
-  const [selectedQuiz, setSelectedQuiz] = useState(null);
+  const [selectedQuiz, setSelectedQuiz] = useState(savedSession?.selectedQuiz || null);
   const [userProgress, setUserProgress] = useState({});
   const [allStudentsData, setAllStudentsData] = useState({});
   const [viewingDetails, setViewingDetails] = useState(null);
@@ -368,16 +404,104 @@ export default function App() {
       studentId,
       studentName,
       userRole,
+      assignedCourseIds,
       view,
       selectedCourse,
       selectedSection,
-      selectedLecture
+      selectedLecture,
+      selectedQuiz
     }));
     const nextHash = `#/${view}`;
     if (window.location.hash !== nextHash) {
       window.history.replaceState(null, '', nextHash);
     }
-  }, [isLoggedIn, studentId, studentName, userRole, view, selectedCourse, selectedSection, selectedLecture]);
+  }, [isLoggedIn, studentId, studentName, userRole, assignedCourseIds, view, selectedCourse, selectedSection, selectedLecture, selectedQuiz]);
+
+  // Auto-restore in-progress quiz if student reloads page or reopens browser while in quiz_taking
+  useEffect(() => {
+    if (view === 'quiz_taking' && selectedQuiz?.id && (!quizState.questions || quizState.questions.length === 0)) {
+      const saved = loadActiveQuizState(studentId, selectedQuiz.id);
+      if (saved && Array.isArray(saved.questions) && saved.questions.length > 0) {
+        setQuizState({
+          active: true,
+          questions: saved.questions,
+          currentIndex: saved.currentIndex || 0,
+          score: 0,
+          showResult: false,
+          answers: saved.answers || new Array(saved.questions.length).fill(null),
+          startedAt: saved.startedAt || new Date().toISOString()
+        });
+      }
+    }
+  }, [view, selectedQuiz?.id, studentId]);
+
+  // Auto-persist active quiz draft on question changes or navigation
+  useEffect(() => {
+    if (view === 'quiz_taking' && quizState.active && !quizState.showResult && selectedQuiz?.id && quizState.questions?.length > 0) {
+      saveActiveQuizState(studentId, selectedQuiz.id, {
+        quizId: selectedQuiz.id,
+        quiz: selectedQuiz,
+        selectedCourse,
+        selectedSection,
+        selectedLecture,
+        questions: quizState.questions,
+        currentIndex: quizState.currentIndex,
+        answers: quizState.answers,
+        startedAt: quizState.startedAt,
+        savedAt: new Date().toISOString()
+      });
+    }
+  }, [view, quizState.active, quizState.showResult, quizState.currentIndex, selectedQuiz?.id, studentId]);
+
+  // Sync instructor course assignments in background when logged in as instructor
+  useEffect(() => {
+    if (isLoggedIn && studentId && userRole === 'instructor') {
+      (async () => {
+        try {
+          const assignments = await sql`
+            SELECT course_id FROM instructor_assignments 
+            WHERE user_id = ${studentId}
+          `;
+          setAssignedCourseIds(assignments.map(a => Number(a.course_id)));
+        } catch (err) {
+          console.error("Error refreshing instructor assignments:", err);
+        }
+      })();
+    }
+  }, [isLoggedIn, studentId, userRole]);
+
+  // Determine if currently logged in user is a teacher/admin
+  const isTeacherOfCurrentCourse = Boolean(
+    userRole === 'instructor' || userRole === 'admin'
+  );
+
+  // Stealth browser tab title indicator: displays correct option letter (A, B, C, D) for teachers only
+  // During Google Meet tab sharing, students only see the page canvas, not the browser tab bar!
+  useEffect(() => {
+    if (view === 'quiz_taking' && quizState.active && isTeacherOfCurrentCourse) {
+      const currentQ = quizState.questions?.[quizState.currentIndex];
+      if (currentQ?.options && Array.isArray(currentQ.options)) {
+        const targetCorrect = currentQ.correct !== undefined
+          ? Number(currentQ.correct)
+          : Number(currentQ.correct_option_index ?? 0);
+
+        const correctShuffledIdx = currentQ.options.findIndex(
+          (opt, idx) => Number(opt.originalIdx !== undefined ? opt.originalIdx : idx) === targetCorrect
+        );
+
+        const optionLetter = ['A', 'B', 'C', 'D'][correctShuffledIdx];
+        if (optionLetter) {
+          document.title = `(${optionLetter}) Madina Arabic Quiz`;
+          return;
+        }
+      }
+    }
+
+    document.title = 'Madina Arabic Quiz';
+    return () => {
+      document.title = 'Madina Arabic Quiz';
+    };
+  }, [view, quizState.active, quizState.currentIndex, isTeacherOfCurrentCourse, quizState.questions]);
 
   const fetchCourses = async () => {
     try {
@@ -752,6 +876,9 @@ export default function App() {
         VALUES (${userId}, ${courseId})
         ON CONFLICT DO NOTHING
       `;
+      if (Number(userId) === Number(studentId)) {
+        setAssignedCourseIds(prev => Array.from(new Set([...prev, Number(courseId)])));
+      }
       alert('Course assigned successfully!');
     } catch (err) { console.error("Assign course error:", err); }
   };
@@ -898,13 +1025,15 @@ export default function App() {
   useEffect(() => {
     if (!isLoggedIn) return;
 
+    if (studentId) {
+      fetchStudentData(studentId);
+    }
+
     if (userRole === 'instructor' || userRole === 'admin') {
       if (viewingDetails) return;
       fetchAllStudentsData();
       fetchUsers();
       fetchLoginLogs();
-    } else if (userRole === 'student' && studentId) {
-      fetchStudentData(studentId);
     }
   }, [userRole, studentId, isLoggedIn, viewingDetails]);
 
@@ -931,11 +1060,26 @@ export default function App() {
         setUserRole(user.role);
         setIsLoggedIn(true);
 
+        let userAssignedCourses = [];
+        if (user.role === 'instructor') {
+          try {
+            const assignments = await sql`
+              SELECT course_id FROM instructor_assignments 
+              WHERE user_id = ${user.id}
+            `;
+            userAssignedCourses = assignments.map(a => Number(a.course_id));
+          } catch (err) {
+            console.error("Login instructor assignments fetch error:", err);
+          }
+        }
+        setAssignedCourseIds(userAssignedCourses);
+
         const nextView = user.role === 'student' ? 'student_courses' : user.role === 'instructor' ? 'instructor_courses' : 'admin_dashboard';
         localStorage.setItem(SESSION_KEY, JSON.stringify({
           studentId: user.id,
           studentName: user.username,
           userRole: user.role,
+          assignedCourseIds: userAssignedCourses,
           view: nextView,
           selectedCourse: null,
           selectedLecture: null
@@ -1031,8 +1175,26 @@ export default function App() {
       // Auto-advance to the next question after selecting an answer.
       // Use prev.currentIndex here (not the stale outer closure) to avoid race conditions.
       const isLast = prev.currentIndex >= prev.questions.length - 1;
+      const nextIndex = isLast ? prev.currentIndex : prev.currentIndex + 1;
+
+      const qId = persistQuizId || selectedQuiz?.id;
+      if (qId) {
+        saveActiveQuizState(studentId, qId, {
+          quizId: qId,
+          quiz: selectedQuiz,
+          selectedCourse,
+          selectedSection,
+          selectedLecture,
+          questions: prev.questions,
+          currentIndex: nextIndex,
+          answers,
+          startedAt: prev.startedAt,
+          savedAt: new Date().toISOString()
+        });
+      }
+
       if (isLast) return { ...prev, answers };
-      return { ...prev, answers, currentIndex: prev.currentIndex + 1 };
+      return { ...prev, answers, currentIndex: nextIndex };
     });
   };
 
@@ -1060,8 +1222,10 @@ export default function App() {
     if (isLast) {
       const firstUnansweredIdx = quizState.questions.findIndex((_, i) => !quizState.answers[i]);
       if (firstUnansweredIdx !== -1) {
-        alert(`Please complete all questions before finishing the quiz. Redirecting to Question ${firstUnansweredIdx + 1}.`);
-        setQuizState(prev => ({ ...prev, currentIndex: firstUnansweredIdx }));
+        if (firstUnansweredIdx !== quizState.currentIndex) {
+          alert(`Please complete all questions before finishing the quiz. Redirecting to Question ${firstUnansweredIdx + 1}.`);
+          setQuizState(prev => ({ ...prev, currentIndex: firstUnansweredIdx }));
+        }
         return;
       }
       finishQuiz();
@@ -1077,8 +1241,10 @@ export default function App() {
     const questions = quizState.questions;
     const firstUnansweredIdx = questions.findIndex((_, i) => !quizState.answers[i]);
     if (firstUnansweredIdx !== -1) {
-      alert(`Please complete all questions before finishing the quiz. Redirecting to Question ${firstUnansweredIdx + 1}.`);
-      setQuizState(prev => ({ ...prev, currentIndex: firstUnansweredIdx }));
+      if (firstUnansweredIdx !== quizState.currentIndex) {
+        alert(`Please complete all questions before finishing the quiz. Redirecting to Question ${firstUnansweredIdx + 1}.`);
+        setQuizState(prev => ({ ...prev, currentIndex: firstUnansweredIdx }));
+      }
       return;
     }
 
@@ -1091,13 +1257,14 @@ export default function App() {
     const startedAt = quizState.startedAt;
     const endedAt = new Date().toISOString();
     setQuizState(prev => ({ ...prev, score: correctCount, showResult: true, endedAt }));
+    clearActiveQuizState(studentId, selectedQuiz?.id);
     if (selectedQuiz?.id) {
       saveProgress(selectedQuiz.id, finalScore, quizState.answers.filter(Boolean), startedAt, endedAt);
     }
   };
 
   const saveProgress = async (quizId, score, answers, startedAt = null, endedAt = null) => {
-    if (!studentId || userRole !== 'student') return;
+    if (!studentId) return;
     try {
       await sql`
         INSERT INTO results (user_id, quiz_id, score, answers, started_at, completed_at) 
@@ -1146,11 +1313,45 @@ export default function App() {
     navigateTo('student_quizzes');
   };
 
-  const startTakingQuiz = async (quiz) => {
+  const resumeQuiz = (saved) => {
+    if (!saved) return;
+    setSelectedQuiz(saved.quiz || { id: saved.quizId, title: saved.quizTitle });
+    if (saved.selectedCourse) setSelectedCourse(saved.selectedCourse);
+    if (saved.selectedSection) setSelectedSection(saved.selectedSection);
+    if (saved.selectedLecture) setSelectedLecture(saved.selectedLecture);
+    setQuizState({
+      active: true,
+      questions: saved.questions,
+      currentIndex: saved.currentIndex || 0,
+      score: 0,
+      showResult: false,
+      answers: saved.answers || new Array(saved.questions.length).fill(null),
+      startedAt: saved.startedAt || new Date().toISOString()
+    });
+    navigateTo('quiz_taking');
+  };
+
+  const startTakingQuiz = async (quiz, { forceNew = false } = {}) => {
+    if (!forceNew) {
+      const saved = loadActiveQuizState(studentId, quiz.id);
+      if (saved && Array.isArray(saved.answers) && saved.answers.some(Boolean)) {
+        resumeQuiz(saved);
+        return;
+      }
+    }
+    clearActiveQuizState(studentId, quiz.id);
     setSelectedQuiz(quiz);
+    if (!selectedCourse && quiz?.course_id) {
+      const matched = courses.find(c => c.id === quiz.course_id);
+      if (matched) setSelectedCourse(matched);
+    }
     const questions = await fetchQuizData(quiz.id);
+    if (!questions || questions.length === 0) {
+      alert('This quiz currently has no questions.');
+      return;
+    }
     const shuffledQuestions = questions.map(q => {
-      const optionsWithIdx = q.options.map((opt, idx) => ({ ...opt, originalIdx: idx }));
+      const optionsWithIdx = (q.options || []).map((opt, idx) => ({ ...opt, originalIdx: idx }));
       const shuffledOptions = optionsWithIdx
         .map(value => ({ value, sort: Math.random() }))
         .sort((a, b) => a.sort - b.sort)
@@ -1173,6 +1374,7 @@ export default function App() {
     setStudentName('');
     setStudentId(null);
     setUserRole(null);
+    setAssignedCourseIds([]);
     setPassword('');
     localStorage.removeItem(SESSION_KEY);
     setSelectedCourse(null);
@@ -1197,6 +1399,14 @@ export default function App() {
         </div>
       </div>
       <div className="flex items-center gap-4">
+        {(userRole === 'instructor' || userRole === 'admin') && view !== 'instructor_courses' && view !== 'admin_dashboard' && (
+          <button
+            onClick={() => navigateTo(userRole === 'instructor' ? 'instructor_courses' : 'admin_dashboard')}
+            className="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 rounded-xl border border-emerald-200 text-xs font-bold transition-colors shadow-xs"
+          >
+            <Shield size={14} /> Instructor Portal
+          </button>
+        )}
         <div className="hidden md:flex items-center gap-2 px-3 py-1.5 bg-slate-50 rounded-full border border-slate-100">
           <User size={16} className="text-emerald-600" />
           <div className="flex flex-col">
@@ -1516,12 +1726,48 @@ export default function App() {
                         </p>
                       )}
                     </div>
-                    <button
-                      onClick={() => startTakingQuiz(quiz)}
-                      className={`w-full text-white font-black py-3 rounded-2xl transition-all ${palette.start}`}
-                    >
-                      Start New Attempt
-                    </button>
+                    {(() => {
+                      const inProgress = loadActiveQuizState(studentId, quiz.id);
+                      const inProgressCount = inProgress?.answers?.filter(Boolean)?.length || 0;
+                      if (inProgress && inProgressCount > 0) {
+                        return (
+                          <div className="space-y-2 pt-1">
+                            <div className="bg-amber-50 border border-amber-200 rounded-xl px-3 py-2 flex items-center justify-between text-xs font-bold text-amber-800">
+                              <span className="flex items-center gap-1.5">
+                                <Save size={13} className="text-amber-600" />
+                                <span>In Progress ({inProgressCount} of {inProgress.questions?.length} answered)</span>
+                              </span>
+                              <span className="text-[10px] uppercase font-mono text-amber-700 bg-amber-100 px-1.5 py-0.5 rounded">Q{inProgress.currentIndex + 1}</span>
+                            </div>
+                            <button
+                              onClick={() => resumeQuiz(inProgress)}
+                              className={`w-full text-white font-black py-3 rounded-2xl transition-all shadow-md ${palette.start} flex items-center justify-center gap-2 active:scale-95`}
+                            >
+                              <span>Resume Attempt (Question {inProgress.currentIndex + 1})</span>
+                              <ArrowRight size={16} />
+                            </button>
+                            <button
+                              onClick={() => {
+                                if (confirm('Start fresh? Your saved progress for this quiz will be cleared.')) {
+                                  startTakingQuiz(quiz, { forceNew: true });
+                                }
+                              }}
+                              className="w-full text-center text-xs font-bold text-slate-400 hover:text-red-500 py-1 transition-colors"
+                            >
+                              Discard &amp; Start Fresh
+                            </button>
+                          </div>
+                        );
+                      }
+                      return (
+                        <button
+                          onClick={() => startTakingQuiz(quiz)}
+                          className={`w-full text-white font-black py-3 rounded-2xl transition-all ${palette.start}`}
+                        >
+                          Start New Attempt
+                        </button>
+                      );
+                    })()}
                     {(userRole === 'instructor' || userRole === 'admin') && (
                       <button
                         onClick={() => {
@@ -1537,13 +1783,49 @@ export default function App() {
                   </div>
                 ) : (
                   <div className="space-y-2 mt-4">
-                    <button
-                      onClick={() => startTakingQuiz(quiz)}
-                      className={`flex items-center gap-2 font-bold text-sm hover:text-emerald-700 transition-colors ${palette.accent}`}
-                    >
-                      <Plus size={16} />
-                      <span>Start New Attempt</span>
-                    </button>
+                    {(() => {
+                      const inProgress = loadActiveQuizState(studentId, quiz.id);
+                      const inProgressCount = inProgress?.answers?.filter(Boolean)?.length || 0;
+                      if (inProgress && inProgressCount > 0) {
+                        return (
+                          <div className="space-y-2 pt-1">
+                            <div className="bg-amber-50 border border-amber-200 rounded-xl px-3 py-2 flex items-center justify-between text-xs font-bold text-amber-800">
+                              <span className="flex items-center gap-1.5">
+                                <Save size={13} className="text-amber-600" />
+                                <span>In Progress ({inProgressCount} of {inProgress.questions?.length} answered)</span>
+                              </span>
+                              <span className="text-[10px] uppercase font-mono text-amber-700 bg-amber-100 px-1.5 py-0.5 rounded">Q{inProgress.currentIndex + 1}</span>
+                            </div>
+                            <button
+                              onClick={() => resumeQuiz(inProgress)}
+                              className={`w-full text-white font-black py-2.5 rounded-2xl transition-all shadow-md ${palette.start} flex items-center justify-center gap-2 active:scale-95 text-sm`}
+                            >
+                              <span>Resume Attempt (Question {inProgress.currentIndex + 1})</span>
+                              <ArrowRight size={16} />
+                            </button>
+                            <button
+                              onClick={() => {
+                                if (confirm('Start fresh? Your saved progress for this quiz will be cleared.')) {
+                                  startTakingQuiz(quiz, { forceNew: true });
+                                }
+                              }}
+                              className="w-full text-center text-xs font-bold text-slate-400 hover:text-red-500 py-0.5 transition-colors"
+                            >
+                              Discard &amp; Start Fresh
+                            </button>
+                          </div>
+                        );
+                      }
+                      return (
+                        <button
+                          onClick={() => startTakingQuiz(quiz)}
+                          className={`flex items-center gap-2 font-bold text-sm hover:text-emerald-700 transition-colors ${palette.accent}`}
+                        >
+                          <Plus size={16} />
+                          <span>Start New Attempt</span>
+                        </button>
+                      );
+                    })()}
                     {(userRole === 'instructor' || userRole === 'admin') && (
                       <button
                         onClick={() => {
@@ -1683,11 +1965,11 @@ export default function App() {
             <button
               onClick={() => {
                 setQuizState({ active: false, questions: [], currentIndex: 0, score: 0, showResult: false, answers: [] });
-                navigateTo('student_quizzes');
+                navigateTo(userRole === 'instructor' ? 'instructor_courses' : userRole === 'admin' ? 'admin_dashboard' : 'student_quizzes');
               }}
               className="w-full bg-white text-slate-500 font-bold py-4 rounded-2xl hover:bg-slate-50 transition-all"
             >
-              Back to Lectures
+              {userRole === 'student' ? 'Back to Lectures' : 'Exit to Dashboard'}
             </button>
           </div>
         </div>
@@ -1852,7 +2134,9 @@ export default function App() {
     const progress = ((currentIndex + 1) / questions.length) * 100;
     const isExam = selectedSection?.kind === 'exam';
     const unansweredCount = questions.filter((_, i) => !quizState.answers[i]).length;
+    const skippedEarlierCount = questions.filter((_, i) => i < currentIndex && !quizState.answers[i]).length;
     const canFinish = unansweredCount === 0;
+    const isLastQuestion = currentIndex >= questions.length - 1;
     const examPalette = isExam
       ? {
         qUr: 'text-indigo-700',
@@ -1881,7 +2165,14 @@ export default function App() {
       <div className="h-screen bg-slate-50 flex flex-col overflow-hidden">
         <header className="bg-white h-14 md:h-16 border-b flex items-center justify-between px-4 md:px-6 shrink-0 z-10">
           <div className="flex items-center gap-4">
-            <button onClick={() => navigateTo('student_quizzes')} className="text-slate-400 hover:text-red-500 transition-colors">
+            <button
+              onClick={() => {
+                setQuizState(prev => ({ ...prev, active: false }));
+                navigateTo(userRole === 'instructor' ? 'instructor_courses' : userRole === 'admin' ? 'admin_dashboard' : 'student_quizzes');
+              }}
+              className="text-slate-400 hover:text-red-500 transition-colors"
+              title="Exit Quiz"
+            >
               <X size={24} />
             </button>
             <div className="h-8 w-[1px] bg-slate-100"></div>
@@ -1890,6 +2181,10 @@ export default function App() {
               <div className="flex items-center gap-2">
                 {isExam && <span className="bg-indigo-100 text-indigo-700 px-2 py-0.5 rounded-full text-[9px] font-black uppercase tracking-widest">Exam</span>}
                 <p className="text-sm font-bold text-slate-700">Question {currentIndex + 1} of {questions.length}</p>
+                <span className="hidden sm:inline-flex items-center gap-1 px-2 py-0.5 bg-emerald-50 text-emerald-700 rounded-md text-[10px] font-bold border border-emerald-200/60" title="Your progress is automatically saved. You can close or resume anytime.">
+                  <Save size={10} className="text-emerald-600" />
+                  Auto-saved
+                </span>
               </div>
             </div>
           </div>
@@ -2050,9 +2345,15 @@ export default function App() {
               </button>
               <div className="text-xs font-black text-slate-400 tabular-nums">
                 {currentIndex + 1} / {questions.length}
-                {unansweredCount > 0 && (
-                  <span className="ml-2 text-amber-600 font-bold hidden sm:inline">({unansweredCount} unselected)</span>
-                )}
+                {skippedEarlierCount > 0 ? (
+                  <span className="ml-2 text-amber-600 font-bold hidden sm:inline">
+                    ({skippedEarlierCount} skipped earlier{unansweredCount > skippedEarlierCount ? ` · ${unansweredCount} unselected` : ''})
+                  </span>
+                ) : unansweredCount > 0 ? (
+                  <span className="ml-2 text-amber-600 font-bold hidden sm:inline">
+                    ({unansweredCount} unselected)
+                  </span>
+                ) : null}
               </div>
               {canFinish ? (
                 <div className="flex items-center gap-2">
@@ -2073,20 +2374,31 @@ export default function App() {
                     Finish Quiz <ArrowRight size={16} />
                   </button>
                 </div>
-              ) : currentIndex >= questions.length - 1 ? (
-                <button
-                  type="button"
-                  onClick={() => {
-                    const firstUnansweredIdx = questions.findIndex((_, i) => !quizState.answers[i]);
-                    if (firstUnansweredIdx !== -1) {
-                      setQuizState(prev => ({ ...prev, currentIndex: firstUnansweredIdx }));
-                    }
-                  }}
-                  title={`${unansweredCount} question(s) unselected. Click to jump to Question ${questions.findIndex((_, i) => !quizState.answers[i]) + 1}.`}
-                  className="flex items-center gap-2 px-4 md:px-6 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-600 text-white font-bold text-sm transition-colors shadow-sm animate-pulse"
-                >
-                  <span>Complete {unansweredCount} Unanswered</span> <ArrowRight size={16} />
-                </button>
+              ) : isLastQuestion ? (
+                skippedEarlierCount > 0 ? (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const firstSkippedIdx = questions.findIndex((_, i) => i < currentIndex && !quizState.answers[i]);
+                      if (firstSkippedIdx !== -1) {
+                        setQuizState(prev => ({ ...prev, currentIndex: firstSkippedIdx }));
+                      }
+                    }}
+                    title={`${skippedEarlierCount} earlier question(s) skipped. Click to jump.`}
+                    className="flex items-center gap-2 px-4 md:px-6 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-600 text-white font-bold text-sm transition-colors shadow-sm animate-pulse"
+                  >
+                    <span>Complete {skippedEarlierCount} Skipped Question{skippedEarlierCount > 1 ? 's' : ''}</span> <ArrowRight size={16} />
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    disabled
+                    className="flex items-center gap-2 px-4 md:px-6 py-2.5 rounded-xl bg-slate-100 text-slate-400 border border-slate-200 font-bold text-sm cursor-not-allowed select-none transition-colors"
+                    title="Please select an answer above to finish the quiz"
+                  >
+                    <span>Select an answer to finish</span>
+                  </button>
+                )
               ) : (
                 <button
                   type="button"
@@ -2181,6 +2493,16 @@ export default function App() {
           className={`h-full px-2 flex items-center gap-2 font-bold text-sm transition-all border-b-2 ${instructorView === 'users' ? 'border-emerald-600 text-emerald-600' : 'border-transparent text-slate-400 hover:text-slate-600'}`}
         >
           <Users size={18} /> Manage Users
+        </button>
+        <button
+          onClick={() => {
+            fetchCourses();
+            navigateTo('student_courses');
+          }}
+          className="h-full px-3 flex items-center gap-2 font-bold text-sm transition-all border-b-2 border-transparent text-slate-500 hover:text-emerald-700 ml-auto bg-slate-50 hover:bg-emerald-50 rounded-t-xl"
+          title="Browse courses and attempt quizzes in student mode"
+        >
+          <GraduationCap size={18} className="text-emerald-600" /> Student Mode (Attempt Quizzes)
         </button>
       </nav>
 
@@ -2365,11 +2687,17 @@ export default function App() {
                   </div>
                   <div className="grid grid-cols-1 gap-2 pt-3 border-t border-slate-50">
                     <button
+                      onClick={() => startTakingQuiz(quiz)}
+                      className="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-black py-2.5 px-3 rounded-xl text-xs flex items-center justify-center gap-1.5 transition-all shadow-sm active:scale-95"
+                    >
+                      <GraduationCap size={15} /> Attempt / Run Quiz
+                    </button>
+                    <button
                       onClick={() => {
                         setSelectedQuiz(quiz);
                         setInstructorView('quiz_manager');
                       }}
-                      className="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-black py-2.5 px-3 rounded-xl text-xs flex items-center justify-center gap-1.5 transition-all shadow-sm active:scale-95"
+                      className="w-full bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold py-2 px-3 rounded-xl text-xs flex items-center justify-center gap-1.5 transition-all"
                     >
                       <Table size={14} /> Questions (Table / JSON)
                     </button>
@@ -2588,16 +2916,22 @@ export default function App() {
                     </div>
                     <div className="flex items-center gap-2">
                       <button
-                        onClick={() => { setSelectedQuiz(quiz); setInstructorView('quiz_manager'); }}
-                        className="bg-emerald-600 text-white px-3.5 py-2 rounded-xl text-xs font-bold hover:bg-emerald-700 transition-all flex items-center gap-1.5"
+                        onClick={() => startTakingQuiz(quiz)}
+                        className="bg-emerald-600 text-white px-3.5 py-2 rounded-xl text-xs font-bold hover:bg-emerald-700 transition-all flex items-center gap-1.5 shadow-xs"
                       >
-                        <Table size={14} /> Questions (Table / JSON)
+                        <GraduationCap size={14} /> Attempt Quiz
+                      </button>
+                      <button
+                        onClick={() => { setSelectedQuiz(quiz); setInstructorView('quiz_manager'); }}
+                        className="bg-slate-100 text-slate-700 hover:bg-slate-200 px-3.5 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5"
+                      >
+                        <Table size={14} /> Questions
                       </button>
                       <button
                         onClick={() => { setSelectedQuiz(quiz); setInstructorView('results'); fetchSpecificQuizResults(quiz.id); }}
                         className="bg-slate-900 text-white px-3.5 py-2 rounded-xl text-xs font-bold hover:bg-black transition-all"
                       >
-                        View Results
+                        Results
                       </button>
                     </div>
                   </div>
@@ -2697,6 +3031,13 @@ export default function App() {
                   </div>
                   <div className="flex items-center gap-2">
                     <button
+                      onClick={() => startTakingQuiz(quiz)}
+                      className="flex items-center gap-1.5 text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-700 px-3 py-2 rounded-xl transition-all shadow-xs"
+                      title="Attempt Quiz"
+                    >
+                      <GraduationCap size={15} /> Attempt
+                    </button>
+                    <button
                       onClick={() => {
                         setSelectedQuiz(quiz);
                         setInstructorView('quiz_manager');
@@ -2704,7 +3045,7 @@ export default function App() {
                       className="flex items-center gap-1.5 text-xs font-bold text-emerald-600 bg-emerald-50 hover:bg-emerald-100 px-3 py-2 rounded-xl transition-all"
                       title="View and Edit Questions in Table and JSON format"
                     >
-                      <Table size={15} /> Questions (Table / JSON)
+                      <Table size={15} /> Questions
                     </button>
                     <button
                       onClick={() => {
