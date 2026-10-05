@@ -19,9 +19,28 @@ MadinaQuizApp/
 ├── src/
 │   ├── main.jsx               # React DOM root render
 │   ├── index.css              # Custom styling, scrollbar utilities, part pulse animations
-│   ├── App.jsx                # Core application (routing, auth, student/instructor/admin views, quiz player)
-│   ├── QuizContentManager.jsx # Question manager (Excel/TSV import-export, JSON editor, bulk edit, AI)
-│   └── groq.js                # Groq API client integration
+│   ├── App.jsx                # Clean root provider container (BrowserRouter, Auth, LMS, AppRoutes)
+│   ├── api/
+│   │   ├── db.js              # Neon Postgres connection & constants
+│   │   └── groq.js            # Groq API client integration
+│   ├── context/
+│   │   ├── AuthContext.jsx    # User session, credentials, roles, teacher detection
+│   │   └── LMSContext.jsx     # Course, section, lecture, quiz, progress state & actions
+│   ├── components/
+│   │   ├── common/            # Header, ProtectedRoute, LoadingSpinner, PasswordModal
+│   │   ├── quiz/              # PartTabs, QuestionCard, QuizBottomBar, QuizResultView, QuestionEditorModal
+│   │   └── student/           # StudentProgressSummary
+│   ├── pages/
+│   │   ├── auth/              # LoginPage
+│   │   ├── student/           # CoursesPage, SectionsPage, LecturesPage, QuizzesPage
+│   │   ├── quiz/              # QuizRunnerPage
+│   │   ├── instructor/        # InstructorPortalPage
+│   │   └── admin/             # AdminDashboardPage
+│   ├── routes/
+│   │   └── AppRoutes.jsx      # Declarative React Router v6 route configuration
+│   └── utils/
+│       ├── quizStorage.js     # LocalStorage auto-save & active quiz persistence
+│       └── formatters.js      # Relative time and date formatters
 ├── seed_book*.js              # Database seed scripts for Madina Books 2 & 3
 ├── migrate*.js               # Schema setup and migration scripts
 └── PROJECT_REFERENCE.md       # This reference guide
@@ -51,16 +70,18 @@ MadinaQuizApp/
 
 ---
 
-## 4. Key Application Views (`App.jsx`)
-State-driven routing via `view` state (`navigateTo(viewName)`):
-- `'login'`: Student / Instructor / Admin login.
-- `'student_courses'`: Course selection list.
-- `'student_sections'`: Course sections (Lectures vs. Midterm/Final Exams).
-- `'student_lectures'`: Lecture list under a section.
-- `'student_quizzes'`: Quiz selection under a lecture/section with attempt history and review.
-- `'quiz_taking'`: Interactive quiz runner with part tabs, question card, previous/next/finish navigation.
-- `'instructor_courses'`, `'instructor_course_detail'`, `'instructor_lecture_detail'`: Instructor question review and management.
-- `'admin_dashboard'`, `'admin_manage_courses'`, `'admin_assign_courses'`: Platform administration.
+## 4. Key Application Routes (`routes/AppRoutes.jsx`)
+Standard React Router v6 routes:
+- `/login`: Public login for Student, Instructor, Admin.
+- `/`: Smart root redirect (redirects to `/courses`, `/instructor`, or `/admin` depending on role).
+- `/courses`: Course selection catalog.
+- `/courses/:courseId/sections`: Course sections (Lectures vs. Exams).
+- `/courses/:courseId/sections/:sectionId/lectures`: Lectures list with progress badges.
+- `/courses/:courseId/lectures/:lectureId/quizzes`: Quizzes list with attempt history & resume button.
+- `/courses/:courseId/sections/:sectionId/quizzes`: Exam quizzes list.
+- `/quiz/:quizId`: Full interactive quiz runner with auto-save & part tabs.
+- `/instructor`: Instructor Portal (Courses, Question Table & JSON Manager, Student Results, Users).
+- `/admin`: Administrator Hub (Course definition, instructor assignments, users).
 
 ---
 
