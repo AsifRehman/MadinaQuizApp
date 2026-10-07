@@ -15,6 +15,20 @@ import { useLMS } from '../../context/LMSContext';
 import { formatRelativeTime } from '../../utils/formatters';
 import { loadActiveQuizState, clearActiveQuizState } from '../../utils/quizStorage';
 
+const isStoredAnswerComplete = (answer) => {
+  if (answer === null || answer === undefined) return false;
+  if (Array.isArray(answer)) return answer.length > 0 && answer.every(isStoredAnswerComplete);
+  if (typeof answer === 'number') return Number.isFinite(answer);
+  if (typeof answer === 'string') return answer.trim().length > 0;
+  if (typeof answer !== 'object') return false;
+  if (Array.isArray(answer.selectedOptions)) return answer.selectedOptions.length > 0 && answer.selectedOptions.every(isStoredAnswerComplete);
+  if (Array.isArray(answer.originalIdx)) return answer.originalIdx.length > 0 && answer.originalIdx.every((idx) => !Number.isNaN(Number(idx)));
+  if (answer.originalIdx !== undefined && !Number.isNaN(Number(answer.originalIdx))) return true;
+  return Boolean(
+    (typeof answer.en === 'string' && answer.en.trim()) ||
+      (typeof answer.ur === 'string' && answer.ur.trim())
+  );
+};
 export default function QuizzesPage() {
   const { courseId, lectureId, sectionId } = useParams();
   const navigate = useNavigate();
@@ -129,7 +143,7 @@ export default function QuizzesPage() {
           {quizzes.map((quiz) => {
             const result = userProgress[`quiz_${quiz.id}`];
             const inProgress = loadActiveQuizState(studentId, quiz.id);
-            const inProgressCount = inProgress?.answers?.filter(Boolean)?.length || 0;
+            const inProgressCount = inProgress?.answers?.filter(isStoredAnswerComplete)?.length || 0;
 
             const palette = isExamSection
               ? {

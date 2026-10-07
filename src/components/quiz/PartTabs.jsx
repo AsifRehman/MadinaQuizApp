@@ -1,6 +1,20 @@
 import React, { useRef, useEffect } from 'react';
 import { ArrowLeft, ArrowRight, CheckCircle2 } from 'lucide-react';
 
+const isAnswerComplete = (answer) => {
+  if (answer === null || answer === undefined) return false;
+  if (Array.isArray(answer)) return answer.length > 0 && answer.every(isAnswerComplete);
+  if (typeof answer === 'number') return Number.isFinite(answer);
+  if (typeof answer === 'string') return answer.trim().length > 0;
+  if (typeof answer !== 'object') return false;
+  if (Array.isArray(answer.selectedOptions)) return answer.selectedOptions.length > 0 && answer.selectedOptions.every(isAnswerComplete);
+  if (Array.isArray(answer.originalIdx)) return answer.originalIdx.length > 0 && answer.originalIdx.every((idx) => !Number.isNaN(Number(idx)));
+  if (answer.originalIdx !== undefined && !Number.isNaN(Number(answer.originalIdx))) return true;
+  return Boolean(
+    (typeof answer.en === 'string' && answer.en.trim()) ||
+      (typeof answer.ur === 'string' && answer.ur.trim())
+  );
+};
 export default function PartTabs({
   quizParts = [],
   currentPartName = '',
@@ -65,9 +79,9 @@ export default function PartTabs({
       >
         {quizParts.map((part) => {
           const isActive = currentPartName === part.name;
-          const answeredInPart = part.indices.filter((idx) => Boolean(answers[idx])).length;
+          const answeredInPart = part.indices.filter((idx) => isAnswerComplete(answers[idx])).length;
           const isCompleted = answeredInPart === part.count;
-          const hasSkipped = answeredInPart < part.count && part.indices.some((idx) => idx < currentIndex && !answers[idx]);
+          const hasSkipped = answeredInPart < part.count && part.indices.some((idx) => idx < currentIndex && !isAnswerComplete(answers[idx]));
           const isPartAnimating = animatingPart === part.name;
 
           return (

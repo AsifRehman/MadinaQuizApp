@@ -17,6 +17,81 @@ import {
   clearActiveQuizState,
 } from '../../utils/quizStorage';
 
+const normalizeAnswers = (sourceAnswers, questionCount) => {
+  const normalized = new Array(questionCount).fill(null);
+  if (!Array.isArray(sourceAnswers)) return normalized;
+
+  sourceAnswers.slice(0, questionCount).forEach((answer, index) => {
+    normalized[index] = answer ?? null;
+  });
+
+  return normalized;
+};
+
+const isAnswerComplete = (answer) => {
+  if (answer === null || answer === undefined) return false;
+
+  if (Array.isArray(answer)) {
+    return answer.length > 0 && answer.every(isAnswerComplete);
+  }
+
+  if (typeof answer === 'number') {
+    return Number.isFinite(answer);
+  }
+
+  if (typeof answer === 'string') {
+    return answer.trim().length > 0;
+  }
+
+  if (typeof answer === 'object') {
+    if (Array.isArray(answer.selectedOptions)) {
+      return answer.selectedOptions.length > 0 && answer.selectedOptions.every(isAnswerComplete);
+    }
+
+    if (Array.isArray(answer.originalIdx)) {
+      return answer.originalIdx.length > 0 && answer.originalIdx.every((idx) => !Number.isNaN(Number(idx)));
+    }
+
+    if (answer.originalIdx !== undefined && !Number.isNaN(Number(answer.originalIdx))) {
+      return true;
+    }
+
+    return Boolean(
+      (typeof answer.en === 'string' && answer.en.trim()) ||
+        (typeof answer.ur === 'string' && answer.ur.trim())
+    );
+  }
+
+  return false;
+};
+
+const findFirstIncompleteAnswer = (questions, sourceAnswers) =>
+  questions.findIndex((_, index) => !isAnswerComplete(sourceAnswers[index]));
+
+const getChoiceIndex = (answer) => {
+  if (answer === null || answer === undefined) return null;
+  if (typeof answer === 'number') return Number(answer);
+  if (typeof answer === 'object' && answer.originalIdx !== undefined) {
+    return Number(answer.originalIdx);
+  }
+  return null;
+};
+
+const buildCompletedAnswers = (questions, sourceAnswers) =>
+  questions.map((question, index) => {
+    const answer = sourceAnswers[index];
+    if (answer && typeof answer === 'object' && !Array.isArray(answer)) {
+      return {
+        ...answer,
+        questionId: question.id,
+        qEn: question.qEn,
+        qUr: question.qUr,
+      };
+    }
+
+    return answer;
+  });
+
 export default function QuizRunnerPage() {
   const { quizId } = useParams();
   const [searchParams] = useSearchParams();
@@ -44,6 +119,7 @@ export default function QuizRunnerPage() {
   // Animation & Part tracking
   const [animatingPart, setAnimatingPart] = useState(null);
   const prevPartRef = useRef(null);
+  const answersRef = useRef([]);
 
   // Teacher editing & password prompt
   const [isEditingQuestion, setIsEditingQuestion] = useState(false);
@@ -73,6 +149,10 @@ export default function QuizRunnerPage() {
     return Array.from(partsMap.values());
   }, [questions]);
 
+  useEffect(() => {
+    answersRef.current = answers;
+  }, [answers]);
+
   // Load Quiz & Restore State
   useEffect(() => {
     let isMounted = true;
@@ -85,10 +165,12 @@ export default function QuizRunnerPage() {
       if (!forceFresh) {
         const saved = loadActiveQuizState(studentId, quizId);
         if (saved && Array.isArray(saved.questions) && saved.questions.length > 0) {
+          const restoredAnswers = normalizeAnswers(saved.answers, saved.questions.length);
           if (!isMounted) return;
           setQuestions(saved.questions);
           setCurrentIndex(saved.currentIndex || 0);
-          setAnswers(saved.answers || new Array(saved.questions.length).fill(null));
+          answersRef.current = restoredAnswers;
+          setAnswers(restoredAnswers);
           setStartedAt(saved.startedAt || new Date().toISOString());
           setIsLoading(false);
           return;
@@ -124,6 +206,7 @@ export default function QuizRunnerPage() {
 
       setQuestions(preparedQuestions);
       setCurrentIndex(0);
+      answersRef.current = initialAnswers;
       setAnswers(initialAnswers);
       setStartedAt(startTime);
       setIsLoading(false);
@@ -187,6 +270,7 @@ export default function QuizRunnerPage() {
       en: option.en || '',
       ur: option.ur || '',
     };
+    answersRef.current = updatedAnswers;
     setAnswers(updatedAnswers);
 
     saveActiveQuizState(studentId, quizId, {
@@ -202,12 +286,13 @@ export default function QuizRunnerPage() {
   const handleNext = () => {
     if (currentIndex < questions.length - 1) {
       const nextIdx = currentIndex + 1;
+      const latestAnswers = answersRef.current;
       setCurrentIndex(nextIdx);
       saveActiveQuizState(studentId, quizId, {
         quizId,
         questions,
         currentIndex: nextIdx,
-        answers,
+        answers: latestAnswers,
         startedAt,
       });
     }
@@ -216,26 +301,28 @@ export default function QuizRunnerPage() {
   const handlePrevious = () => {
     if (currentIndex > 0) {
       const prevIdx = currentIndex - 1;
+      const latestAnswers = answersRef.current;
       setCurrentIndex(prevIdx);
       saveActiveQuizState(studentId, quizId, {
         quizId,
         questions,
         currentIndex: prevIdx,
-        answers,
+        answers: latestAnswers,
         startedAt,
       });
     }
   };
 
   const handleJumpToFirstSkipped = () => {
-    const firstSkipped = questions.findIndex((_, i) => i < currentIndex && !answers[i]);
+    const latestAnswers = answersRef.current;
+    const firstSkipped = questions.findIndex((_, i) => i < currentIndex && !isAnswerComplete(latestAnswers[i]));
     if (firstSkipped !== -1) {
       setCurrentIndex(firstSkipped);
       saveActiveQuizState(studentId, quizId, {
         quizId,
         questions,
         currentIndex: firstSkipped,
-        answers,
+        answers: latestAnswers,
         startedAt,
       });
     }
@@ -243,22 +330,43 @@ export default function QuizRunnerPage() {
 
   // Finish Quiz
   const handleFinish = () => {
+    const latestAnswers = normalizeAnswers(answersRef.current, questions.length);
+    const firstIncompleteIdx = findFirstIncompleteAnswer(questions, latestAnswers);
+
+    if (firstIncompleteIdx !== -1) {
+      setCurrentIndex(firstIncompleteIdx);
+      answersRef.current = latestAnswers;
+      setAnswers(latestAnswers);
+      saveActiveQuizState(studentId, quizId, {
+        quizId,
+        questions,
+        currentIndex: firstIncompleteIdx,
+        answers: latestAnswers,
+        startedAt,
+      });
+      alert(`Please complete all questions before finishing the quiz. Redirecting to Question ${firstIncompleteIdx + 1}.`);
+      return;
+    }
+
     let correctCount = 0;
     questions.forEach((q, i) => {
-      const ans = answers[i];
-      if (ans && Number(ans.originalIdx) === Number(q.correct)) {
+      const studentChoiceIdx = getChoiceIndex(latestAnswers[i]);
+      if (studentChoiceIdx !== null && Number(studentChoiceIdx) === Number(q.correct)) {
         correctCount += 1;
       }
     });
 
     const finalPercentage = Math.round((correctCount / questions.length) * 100);
     const endedAt = new Date().toISOString();
+    const completedAnswers = buildCompletedAnswers(questions, latestAnswers);
 
     setScore(correctCount);
+    answersRef.current = completedAnswers;
+    setAnswers(completedAnswers);
     setShowResult(true);
     clearActiveQuizState(studentId, quizId);
 
-    saveProgress(quizId, finalPercentage, answers.filter(Boolean), startedAt, endedAt);
+    saveProgress(quizId, finalPercentage, completedAnswers, startedAt, endedAt);
   };
 
   // Instructor Question Edit verification
@@ -334,6 +442,7 @@ export default function QuizRunnerPage() {
           ur: match.ur,
         };
       }
+      answersRef.current = updatedAnswers;
       setAnswers(updatedAnswers);
     }
 
@@ -357,10 +466,20 @@ export default function QuizRunnerPage() {
         questions={questions}
         answers={answers}
         onRetry={() => {
+          const resetAnswers = new Array(questions.length).fill(null);
+          const resetStartedAt = new Date().toISOString();
           setShowResult(false);
           setCurrentIndex(0);
-          setAnswers(new Array(questions.length).fill(null));
-          setStartedAt(new Date().toISOString());
+          answersRef.current = resetAnswers;
+          setAnswers(resetAnswers);
+          setStartedAt(resetStartedAt);
+          saveActiveQuizState(studentId, quizId, {
+            quizId,
+            questions,
+            currentIndex: 0,
+            answers: resetAnswers,
+            startedAt: resetStartedAt,
+          });
         }}
         onBack={() => {
           if (userRole === 'instructor') {
@@ -380,9 +499,9 @@ export default function QuizRunnerPage() {
   const progressPercent = ((currentIndex + 1) / questions.length) * 100;
   const isExam = selectedSection?.kind === 'exam';
 
-  const unansweredCount = questions.filter((_, i) => !answers[i]).length;
-  const skippedEarlierCount = questions.filter((_, i) => i < currentIndex && !answers[i]).length;
-  const firstSkippedIndex = questions.findIndex((_, i) => i < currentIndex && !answers[i]);
+  const unansweredCount = questions.filter((_, i) => !isAnswerComplete(answers[i])).length;
+  const skippedEarlierCount = questions.filter((_, i) => i < currentIndex && !isAnswerComplete(answers[i])).length;
+  const firstSkippedIndex = questions.findIndex((_, i) => i < currentIndex && !isAnswerComplete(answers[i]));
   const canFinish = unansweredCount === 0;
   const isLastQuestion = currentIndex >= questions.length - 1;
 
