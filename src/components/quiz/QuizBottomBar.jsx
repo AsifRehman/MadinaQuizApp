@@ -5,6 +5,7 @@ export default function QuizBottomBar({
   currentIndex,
   totalQuestions,
   skippedEarlierCount,
+  firstSkippedIndex = -1,
   unansweredCount,
   canFinish,
   isLastQuestion,
@@ -14,6 +15,7 @@ export default function QuizBottomBar({
   onFinish,
   onJumpToFirstSkipped,
 }) {
+  const targetSkippedNum = firstSkippedIndex >= 0 ? firstSkippedIndex + 1 : null;
   return (
     <div
       className={`px-4 py-3 md:px-8 md:py-4 border-t bg-white flex items-center justify-between gap-3 shrink-0 ${examPalette.finishBorder}`}
@@ -68,11 +70,13 @@ export default function QuizBottomBar({
           <button
             type="button"
             onClick={onJumpToFirstSkipped}
-            title={`${skippedEarlierCount} earlier question(s) skipped. Click to jump.`}
+            title={`${skippedEarlierCount} question(s) skipped earlier. Click to jump to Question ${targetSkippedNum || 1}.`}
             className="flex items-center gap-2 px-4 md:px-6 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-600 text-white font-bold text-sm transition-colors shadow-sm animate-pulse"
           >
             <span>
-              Complete {skippedEarlierCount} Skipped Question{skippedEarlierCount > 1 ? 's' : ''}
+              {targetSkippedNum
+                ? `Jump to Skipped Q#${targetSkippedNum}${skippedEarlierCount > 1 ? ` (+${skippedEarlierCount - 1} more)` : ''}`
+                : `Complete ${skippedEarlierCount} Skipped Question${skippedEarlierCount > 1 ? 's' : ''}`}
             </span>
             <ArrowRight size={16} />
           </button>

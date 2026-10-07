@@ -65,7 +65,9 @@ export default function PartTabs({
       >
         {quizParts.map((part) => {
           const isActive = currentPartName === part.name;
-          const isCompleted = part.indices.every((idx) => Boolean(answers[idx]));
+          const answeredInPart = part.indices.filter((idx) => Boolean(answers[idx])).length;
+          const isCompleted = answeredInPart === part.count;
+          const hasSkipped = answeredInPart < part.count && part.indices.some((idx) => idx < currentIndex && !answers[idx]);
           const isPartAnimating = animatingPart === part.name;
 
           return (
@@ -78,7 +80,7 @@ export default function PartTabs({
                   onSelectPart(part.firstIndex);
                 }
               }}
-              title={`Go to ${part.name} (Question ${part.firstIndex + 1})`}
+              title={`Go to ${part.name} (Question ${part.firstIndex + 1})${hasSkipped ? ` · ${part.count - answeredInPart} skipped in this section` : ''}`}
               className={`inline-flex items-center gap-1.5 px-3 h-7 rounded-xl text-xs font-bold transition-colors duration-200 shrink-0 select-none cursor-pointer whitespace-nowrap ${
                 isActive
                   ? `${
@@ -94,6 +96,8 @@ export default function PartTabs({
                     }`
                   : isCompleted
                   ? 'bg-white/80 text-emerald-700 hover:bg-white border border-emerald-200/60 shadow-xs'
+                  : hasSkipped
+                  ? 'bg-amber-50 text-amber-800 hover:bg-amber-100 border border-amber-300 shadow-xs'
                   : 'text-slate-500 hover:text-slate-700 hover:bg-white/50 border border-transparent'
               }`}
             >
@@ -106,6 +110,8 @@ export default function PartTabs({
                 </span>
               ) : isCompleted ? (
                 <CheckCircle2 size={13} className="text-emerald-600 stroke-[2.5] shrink-0" />
+              ) : hasSkipped ? (
+                <span className="w-1.5 h-1.5 rounded-full bg-amber-500 shrink-0 animate-ping"></span>
               ) : (
                 <span className="w-1.5 h-1.5 rounded-full bg-slate-300 shrink-0"></span>
               )}
@@ -118,10 +124,12 @@ export default function PartTabs({
                     ? 'bg-white/25 text-white'
                     : isCompleted
                     ? 'bg-emerald-100/80 text-emerald-800'
+                    : hasSkipped
+                    ? 'bg-amber-200/80 text-amber-900 font-extrabold'
                     : 'bg-slate-200/70 text-slate-500'
                 }`}
               >
-                {part.count}
+                {answeredInPart}/{part.count}
               </span>
             </button>
           );

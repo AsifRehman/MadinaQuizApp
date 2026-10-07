@@ -382,6 +382,7 @@ export default function QuizRunnerPage() {
 
   const unansweredCount = questions.filter((_, i) => !answers[i]).length;
   const skippedEarlierCount = questions.filter((_, i) => i < currentIndex && !answers[i]).length;
+  const firstSkippedIndex = questions.findIndex((_, i) => i < currentIndex && !answers[i]);
   const canFinish = unansweredCount === 0;
   const isLastQuestion = currentIndex >= questions.length - 1;
 
@@ -513,6 +514,7 @@ export default function QuizRunnerPage() {
             currentIndex={currentIndex}
             totalQuestions={questions.length}
             skippedEarlierCount={skippedEarlierCount}
+            firstSkippedIndex={firstSkippedIndex}
             unansweredCount={unansweredCount}
             canFinish={canFinish}
             isLastQuestion={isLastQuestion}
