@@ -74,7 +74,7 @@ export default function QuestionCard({
               </span>
               <span
                 dir="rtl"
-                className={`text-lg font-bold font-urdu shrink-0 ${examPalette.urText}`}
+                className={`text-lg font-bold font-urdu shrink text-right max-w-[55%] ${examPalette.urText}`}
               >
                 {opt.ur}
               </span>
