@@ -94,7 +94,7 @@ const buildCompletedAnswers = (questions, sourceAnswers) =>
 
 export default function QuizRunnerPage() {
   const { quizId } = useParams();
-  const [searchParams] = useSearchParams();
+  const [searchParams, setSearchParams] = useSearchParams();
   const forceFresh = searchParams.get('fresh') === 'true';
 
   const navigate = useNavigate();
@@ -218,6 +218,12 @@ export default function QuizRunnerPage() {
         answers: initialAnswers,
         startedAt: startTime,
       });
+
+      // Remove fresh=true from URL so a page refresh doesn't wipe the progress
+      if (forceFresh) {
+        searchParams.delete('fresh');
+        setSearchParams(searchParams, { replace: true });
+      }
     };
 
     initQuiz();
